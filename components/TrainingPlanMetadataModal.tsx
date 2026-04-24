@@ -30,7 +30,16 @@ export function TrainingPlanMetadataModal({
 }: TrainingPlanMetadataModalProps) {
   const [activeGoal, setActiveGoal] = useState<TrainingGoal | "">(inferred.activeGoal ?? "");
   const [raceDistance, setRaceDistance] = useState(inferred.raceDistance ?? "");
-  const [targetRaceDate, setTargetRaceDate] = useState(inferred.targetRaceDate ? new Date(inferred.targetRaceDate).toISOString().split("T")[0] : "");
+  const [targetRaceDate, setTargetRaceDate] = useState<string>(() => {
+    if (inferred.targetRaceDate) {
+      try {
+        return new Date(inferred.targetRaceDate).toISOString().split("T")[0];
+      } catch {
+        return "";
+      }
+    }
+    return "";
+  });
   const [plannedWeeklyMileage, setPlannedWeeklyMileage] = useState(inferred.plannedWeeklyMileage?.toString() ?? "");
   const [plannedLongRunDistance, setPlannedLongRunDistance] = useState(inferred.plannedLongRunDistance?.toString() ?? "");
 
