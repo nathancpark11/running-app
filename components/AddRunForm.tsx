@@ -314,7 +314,7 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
                 <input
                   type="number"
                   min="0"
-                  step="0.1"
+                  step="0.01"
                   value={values.distanceMiles}
                   onChange={(e) => update("distanceMiles", Number(e.target.value))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"

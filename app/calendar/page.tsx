@@ -61,6 +61,14 @@ function keyForDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function keyForRunDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10);
+  }
+  return keyForDate(parsed);
+}
+
 export default function CalendarPage() {
   const { runs, trainingRecommendations } = useRunTrack();
   const todayKey = keyForDate(new Date());
@@ -118,7 +126,7 @@ export default function CalendarPage() {
   const runsByDate = useMemo(() => {
     const map = new Map<string, typeof runs>();
     runs.forEach((run) => {
-      const key = run.date.slice(0, 10);
+      const key = keyForRunDate(run.date);
       const existing = map.get(key) ?? [];
       map.set(key, [...existing, run]);
     });

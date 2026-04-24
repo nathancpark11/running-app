@@ -33,7 +33,7 @@ export function RunCard({
         <div className="mt-2 grid grid-cols-3 gap-2 border-t border-slate-200/70 pt-2 dark:border-slate-800">
           <div>
             <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Distance</p>
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{run.distanceMiles.toFixed(1)} mi</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{run.distanceMiles.toFixed(2)} mi</p>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Pace</p>
@@ -66,7 +66,7 @@ export function RunCard({
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <div>
           <p className="text-xs text-slate-500">Distance</p>
-          <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{run.distanceMiles.toFixed(1)} mi</p>
+          <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{run.distanceMiles.toFixed(2)} mi</p>
         </div>
         <div>
           <p className="text-xs text-slate-500">Pace</p>

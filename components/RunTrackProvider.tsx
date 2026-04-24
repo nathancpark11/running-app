@@ -58,6 +58,13 @@ function extractSorenessNotes(run: Omit<RunLog, "id" | "createdAt"> | RunLog): s
   return notes.slice(0, 8);
 }
 
+function looksLikeLegacyDefaultRoutine(routine: StretchRoutine): boolean {
+  // Legacy placeholder data included "Neck Stretch" and several numbered labels.
+  const hasNeckStretch = routine.items.some((item) => item.name.trim().toLowerCase() === "neck stretch");
+  const numberedNameCount = routine.items.filter((item) => /\(\d+\)$/.test(item.name)).length;
+  return hasNeckStretch && numberedNameCount >= 2;
+}
+
 export function RunTrackProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<RunLog[]>([]);
   const [trainingRecommendations, setTrainingRecommendations] = useState<TrainingRecommendation[]>([]);
@@ -95,27 +102,28 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
         if (canceled) return;
 
         const incomingRoutines = data.routines ?? DEFAULT_ROUTINES;
+        let routinesWereMigrated = false;
         const resolvedRoutines = incomingRoutines.map((routine) => {
           if (routine.id !== "routine-default") {
             return routine;
           }
 
+          const isLegacyDefault = looksLikeLegacyDefaultRoutine(routine);
+
+          if (isLegacyDefault) {
+            routinesWereMigrated = true;
+            return DEFAULT_ROUTINES.find((item) => item.id === "routine-default") ?? routine;
+          }
+
           if (routine.name === "Post Run Mobility") {
+            routinesWereMigrated = true;
             return {
               ...routine,
               name: "Post Run Stretch",
             };
           }
 
-          const looksLikeLegacyDefaultRoutine =
-            routine.items.some((item) => item.name === "Neck Stretch") ||
-            routine.items.some((item) => /\(\d+\)$/.test(item.name));
-
-          if (!looksLikeLegacyDefaultRoutine) {
-            return routine;
-          }
-
-          return DEFAULT_ROUTINES.find((item) => item.id === "routine-default") ?? routine;
+          return routine;
         });
 
         setRuns(data.runs ?? []);
@@ -124,6 +132,14 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
         setGoals(data.goals ?? DEFAULT_GOALS);
         setPreferences(data.preferences ?? DEFAULT_PREFERENCES);
         setRoutines(resolvedRoutines);
+
+        if (routinesWereMigrated) {
+          void fetch("/api/user-data", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ routines: resolvedRoutines }),
+          }).catch(() => undefined);
+        }
       } finally {
         if (!canceled) {
           setHydrated(true);
