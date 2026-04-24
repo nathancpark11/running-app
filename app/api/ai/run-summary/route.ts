@@ -61,7 +61,6 @@ export async function POST(request: Request) {
         notes: normalized.notes,
         sorenessNotes: normalized.sorenessNotes,
         effortLevel: normalized.effortLevel,
-        weather: normalized.weather,
       }));
     }
 
