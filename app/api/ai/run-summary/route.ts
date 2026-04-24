@@ -1,6 +1,7 @@
 import { RUN_SUMMARY_PROMPT } from "@/lib/aiPrompts";
 import { fallbackRunSummary } from "@/lib/aiFallbacks";
 import { requestAiJson } from "@/lib/openai";
+import type { RunType } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -52,7 +53,16 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return Response.json(fallbackRunSummary(normalized));
+      return Response.json(fallbackRunSummary({
+        distanceMiles: normalized.distanceMiles,
+        durationMinutes: normalized.durationMinutes,
+        paceMinPerMile: normalized.paceMinPerMile,
+        runType: normalized.runType as RunType,
+        notes: normalized.notes,
+        sorenessNotes: normalized.sorenessNotes,
+        effortLevel: normalized.effortLevel,
+        weather: normalized.weather,
+      }));
     }
 
     const ai = await requestAiJson<RunSummaryResponse>(RUN_SUMMARY_PROMPT, {
@@ -72,7 +82,15 @@ export async function POST(request: Request) {
       : [];
 
     if (!summary) {
-      return Response.json(fallbackRunSummary(normalized));
+      return Response.json(fallbackRunSummary({
+        distanceMiles: normalized.distanceMiles,
+        durationMinutes: normalized.durationMinutes,
+        paceMinPerMile: normalized.paceMinPerMile,
+        runType: normalized.runType as RunType,
+        notes: normalized.notes,
+        sorenessNotes: normalized.sorenessNotes,
+        effortLevel: normalized.effortLevel,
+      }));
     }
 
     return Response.json({ summary, signals } satisfies RunSummaryResponse);
