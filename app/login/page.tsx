@@ -52,8 +52,7 @@ function LoginPageContent() {
         return;
       }
 
-      router.push(nextPath);
-      router.refresh();
+      window.location.assign(nextPath);
     } catch {
       setError("Unable to connect. Please try again.");
     } finally {

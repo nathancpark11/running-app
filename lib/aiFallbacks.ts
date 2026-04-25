@@ -2,6 +2,29 @@ import type { RunLog, RunType, TrainingRecommendation } from "@/lib/types";
 
 export type InjuryRiskLevel = "low" | "moderate" | "high";
 
+export function fallbackRunTitle(input: {
+  distanceMiles: number;
+  runType: RunType;
+}) {
+  const labelByType: Record<RunType, string> = {
+    Easy: "Easy Run",
+    Long: "Long Run",
+    Endurance: "Endurance Run",
+    Tempo: "Tempo Session",
+    Recovery: "Recovery Run",
+    Intervals: "Intervals Session",
+    Hills: "Hill Session",
+    Hike: "Hike",
+    Race: "Race Effort",
+  };
+
+  const formattedDistance = Number.isInteger(input.distanceMiles)
+    ? input.distanceMiles.toFixed(0)
+    : input.distanceMiles.toFixed(1);
+
+  return `${labelByType[input.runType]} ${formattedDistance} mi`;
+}
+
 export function fallbackRunSummary(input: {
   distanceMiles: number;
   durationMinutes: number;
@@ -28,6 +51,7 @@ export function fallbackRunSummary(input: {
   }`;
 
   return {
+    title: fallbackRunTitle({ distanceMiles: input.distanceMiles, runType: input.runType }),
     summary,
     signals: hints,
   };
@@ -40,15 +64,30 @@ export function fallbackWeeklyInsights(input: {
   previousWeekMiles: number;
   paceDeltaSeconds: number;
   missedLongRun: boolean;
+  plannedWeeklyMileage?: number | null;
+  missedCount: number;
 }) {
+  const mileageDelta = input.currentWeekMiles - input.previousWeekMiles;
+  const mileageDeltaPercent = input.previousWeekMiles > 0
+    ? Math.round((mileageDelta / input.previousWeekMiles) * 100)
+    : 0;
+  const planDelta = input.plannedWeeklyMileage != null
+    ? input.currentWeekMiles - input.plannedWeeklyMileage
+    : null;
+
   const insights = [
-    `Completed ${input.completedCount} of ${input.plannedCount} planned runs.`,
-    `Weekly mileage: ${input.currentWeekMiles.toFixed(1)} mi (${(input.currentWeekMiles - input.previousWeekMiles).toFixed(1)} vs last week).`,
-    `Average pace ${input.paceDeltaSeconds <= 0 ? "improved" : "slowed"} by ${Math.abs(input.paceDeltaSeconds)} sec/mi vs last week.`,
+    `[POSITIVE] Completed ${input.completedCount} of ${input.plannedCount} planned runs, which keeps weekly consistency moving in the right direction.`,
+    `[TREND] Weekly mileage is ${input.currentWeekMiles.toFixed(1)} mi, ${mileageDelta >= 0 ? "up" : "down"} ${Math.abs(mileageDelta).toFixed(1)} mi${input.previousWeekMiles > 0 ? ` (${Math.abs(mileageDeltaPercent)}%)` : ""} versus last week.`,
+    `[TREND] Average pace ${input.paceDeltaSeconds <= 0 ? "improved" : "slowed"} by ${Math.abs(input.paceDeltaSeconds)} sec/mi compared with last week, which ${input.paceDeltaSeconds <= 0 ? "suggests the current load is still manageable" : "can point to accumulating fatigue if the trend continues"}.`,
+    input.missedLongRun || input.missedCount > 0
+      ? `[RISK] Missing ${input.missedCount} planned workout${input.missedCount === 1 ? "" : "s"}${input.missedLongRun ? ", including a long run," : ""} can weaken endurance progression and usually signals a recovery mismatch.`
+      : `[ACTION] Keep the next easy day truly easy so this week’s load turns into adaptation instead of lingering fatigue.`,
   ];
 
-  if (input.missedLongRun) {
-    insights.push("Missed a planned long run; endurance progression may stall.");
+  if (planDelta != null) {
+    insights.push(
+      `[ACTION] ${planDelta >= 0 ? "Hold" : "Build toward"} your planned weekly volume of ${input.plannedWeeklyMileage?.toFixed(1)} mi with small adjustments instead of trying to force one big catch-up session.`
+    );
   }
 
   return {
@@ -91,17 +130,29 @@ export function fallbackTodayFocus(input: {
   upcomingRunType?: string;
   injuryRiskLevel?: InjuryRiskLevel | null;
   recentFastStarts?: boolean;
+  tempoAtPaceSuggestion?: string | null;
+  plannedWorkoutSuggestion?: string | null;
 }) {
   if (input.injuryRiskLevel === "high") {
-    return { tip: "Keep effort controlled early and shorten intensity if soreness appears." };
+    return {
+      tip: "Keep effort controlled early and shorten intensity if soreness appears.",
+      tempoAtPaceSuggestion: input.tempoAtPaceSuggestion ?? null,
+      plannedWorkoutSuggestion: input.plannedWorkoutSuggestion ?? null,
+    };
   }
 
   if (input.recentFastStarts) {
-    return { tip: `For ${input.upcomingTitle ?? "your next run"}, settle into pace in the first 10 minutes.` };
+    return {
+      tip: `For ${input.upcomingTitle ?? "your next run"}, settle into pace in the first 10 minutes.`,
+      tempoAtPaceSuggestion: input.tempoAtPaceSuggestion ?? null,
+      plannedWorkoutSuggestion: input.plannedWorkoutSuggestion ?? null,
+    };
   }
 
   return {
     tip: `For ${input.upcomingTitle ?? "today"}${input.upcomingRunType ? ` (${input.upcomingRunType})` : ""}, focus on even pacing and relaxed form.`,
+    tempoAtPaceSuggestion: input.tempoAtPaceSuggestion ?? null,
+    plannedWorkoutSuggestion: input.plannedWorkoutSuggestion ?? null,
   };
 }
 

@@ -12,7 +12,7 @@ type ParseRunResponse = {
   distanceMiles: number | null;
   durationMinutes: number | null;
   paceMinPerMile: number | null;
-  runType: "Easy" | "Long" | "Tempo" | "Recovery" | "Intervals" | "Race" | "Hills" | "Hike" | null;
+  runType: "Easy" | "Long" | "Endurance" | "Tempo" | "Recovery" | "Intervals" | "Race" | "Hills" | "Hike" | null;
   effortLevel: number | null;
   weather: string | null;
   fatigueIndicators: string[];

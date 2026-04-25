@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AddRunForm } from "@/components/AddRunForm";
 import { RunCard } from "@/components/RunCard";
 import { useRunTrack } from "@/components/RunTrackProvider";
@@ -28,6 +29,32 @@ type EditRunValues = {
 };
 
 const runTypes: RunType[] = ["Easy", "Long", "Tempo", "Recovery", "Intervals", "Hills", "Hike", "Race"];
+
+type RunSortOption = "date-desc" | "date-asc";
+
+function startOfWeek(dateInput: string): Date {
+  const date = new Date(dateInput);
+  date.setHours(0, 0, 0, 0);
+  const dayOfWeek = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - dayOfWeek);
+  return date;
+}
+
+function formatWeekLabel(weekStart: Date): string {
+  return weekStart.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function compareRuns(left: RunLog, right: RunLog, sortOption: RunSortOption): number {
+  if (sortOption === "date-asc") {
+    return +new Date(left.date) - +new Date(right.date);
+  }
+
+  return +new Date(right.date) - +new Date(left.date);
+}
 
 function defaultPaceForSurface(surface: RunSurface): string {
   return surface === "Outdoor" ? "7:30/mi" : "8.0";
@@ -65,12 +92,46 @@ function toEditValues(run: RunLog): EditRunValues {
 }
 
 export default function RunsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { runs, addRun, updateRun, updateRunAiSummary, deleteRun } = useRunTrack();
   const [editingRun, setEditingRun] = useState<RunLog | null>(null);
   const [editValues, setEditValues] = useState<EditRunValues | null>(null);
   const [regeneratingRunId, setRegeneratingRunId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<RunSortOption>("date-desc");
+  const [runTypeFilter, setRunTypeFilter] = useState<RunType | "all">("all");
+  const shouldOpenAddRun = searchParams.get("add") === "1";
 
-  const sortedRuns = [...runs].sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  useEffect(() => {
+    if (!shouldOpenAddRun) {
+      return;
+    }
+
+    router.replace("/runs", { scroll: false });
+  }, [router, shouldOpenAddRun]);
+
+  const groupedRuns = useMemo(() => {
+    const filteredRuns = runTypeFilter === "all" ? runs : runs.filter((run) => run.runType === runTypeFilter);
+    const grouped = new Map<string, { weekStart: Date; runs: RunLog[] }>();
+
+    for (const run of filteredRuns) {
+      const weekStart = startOfWeek(run.date);
+      const weekKey = weekStart.toISOString().slice(0, 10);
+      const existing = grouped.get(weekKey);
+      if (existing) {
+        existing.runs.push(run);
+      } else {
+        grouped.set(weekKey, { weekStart, runs: [run] });
+      }
+    }
+
+    return [...grouped.values()]
+      .sort((left, right) => +right.weekStart - +left.weekStart)
+      .map((group) => ({
+        weekLabel: `Week of ${formatWeekLabel(group.weekStart)}`,
+        runs: group.runs.sort((left, right) => compareRuns(left, right, sortOption)),
+      }));
+  }, [runTypeFilter, runs, sortOption]);
 
   const showHoursField = editValues ? editValues.runType === "Long" || editValues.runType === "Race" : false;
 
@@ -112,18 +173,18 @@ export default function RunsPage() {
         }),
       });
 
-      const data = (await response.json()) as { summary?: string; signals?: string[] };
-      if (!response.ok || !data.summary) {
+      const data = (await response.json()) as { title?: string; summary?: string; signals?: string[] };
+      if (!response.ok || !data.title || !data.summary) {
         return;
       }
 
-      updateRunAiSummary(
-        run.id,
-        data.summary,
-        Array.isArray(data.signals)
+      updateRunAiSummary(run.id, {
+        title: data.title,
+        summary: data.summary,
+        signals: Array.isArray(data.signals)
           ? data.signals.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 4)
-          : []
-      );
+          : [],
+      });
     } finally {
       setRegeneratingRunId(null);
     }
@@ -187,6 +248,8 @@ export default function RunsPage() {
   return (
     <div className="space-y-5">
       <AddRunForm
+        key={shouldOpenAddRun ? "add-run-open" : "add-run-closed"}
+        initialOpen={shouldOpenAddRun}
         onSubmit={(values) => {
           const { time, durationHours, durationSeconds, ...payload } = values;
           const {
@@ -227,22 +290,65 @@ export default function RunsPage() {
       />
 
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Logged Runs</h2>
-        {sortedRuns.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Logged Runs</h2>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <span>Sort</span>
+              <select
+                value={sortOption}
+                onChange={(event) => setSortOption(event.target.value as RunSortOption)}
+                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="date-desc">Date (Newest)</option>
+                <option value="date-asc">Date (Oldest)</option>
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <span>Filter</span>
+              <select
+                value={runTypeFilter}
+                onChange={(event) => setRunTypeFilter(event.target.value as RunType | "all")}
+                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="all">All run types</option>
+                {runTypes.map((runType) => (
+                  <option key={runType} value={runType}>
+                    {runType}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {groupedRuns.length === 0 ? (
           <article className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
             No runs saved yet.
           </article>
         ) : (
-          sortedRuns.map((run) => (
-            <RunCard
-              key={run.id}
-              run={run}
-              onEdit={startEdit}
-              onRegenerateSummary={(nextRun) => {
-                void regenerateSummary(nextRun);
-              }}
-              isRegeneratingSummary={regeneratingRunId === run.id}
-            />
+          groupedRuns.map((group) => (
+            <div key={group.weekLabel} className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                {group.weekLabel}
+              </p>
+              <div className="space-y-2">
+                {group.runs.map((run) => (
+                  <RunCard
+                    key={run.id}
+                    run={run}
+                    compact
+                    expandable
+                    onEdit={startEdit}
+                    onRegenerateSummary={(nextRun) => {
+                      void regenerateSummary(nextRun);
+                    }}
+                    isRegeneratingSummary={regeneratingRunId === run.id}
+                  />
+                ))}
+              </div>
+            </div>
           ))
         )}
       </section>
@@ -301,14 +407,15 @@ export default function RunsPage() {
               </label>
 
               <label className="space-y-1 text-sm">
-                <span className="text-slate-600 dark:text-slate-300">Date</span>
-                <input
-                  type="date"
-                  value={editValues.date}
-                  onChange={(e) => updateEdit("date", e.target.value)}
+                <span className="text-slate-600 dark:text-slate-300">Surface</span>
+                <select
+                  value={editValues.surface}
+                  onChange={(e) => updateEdit("surface", e.target.value as RunSurface)}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                  required
-                />
+                >
+                  <option value="Outdoor">Outdoor</option>
+                  <option value="Treadmill">Treadmill</option>
+                </select>
               </label>
 
               <label className="space-y-1 text-sm">
@@ -325,15 +432,14 @@ export default function RunsPage() {
 
             <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1 text-sm">
-                <span className="text-slate-600 dark:text-slate-300">Surface</span>
-                <select
-                  value={editValues.surface}
-                  onChange={(e) => updateEdit("surface", e.target.value as RunSurface)}
+                <span className="text-slate-600 dark:text-slate-300">Date</span>
+                <input
+                  type="date"
+                  value={editValues.date}
+                  onChange={(e) => updateEdit("date", e.target.value)}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                >
-                  <option value="Outdoor">Outdoor</option>
-                  <option value="Treadmill">Treadmill</option>
-                </select>
+                  required
+                />
               </label>
 
               <label className="space-y-1 text-sm">

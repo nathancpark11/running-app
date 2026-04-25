@@ -23,6 +23,8 @@ export function MobileNav() {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const moreRef = useRef<HTMLLIElement | null>(null);
   const isMoreActive = moreItems.some((item) => item.href === pathname);
+  const activeItemClass = "bg-blue-600 text-white shadow-[0_14px_30px_-18px_rgba(37,99,235,0.95)] dark:bg-blue-500 dark:text-slate-950";
+  const inactiveItemClass = "text-slate-500 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:bg-slate-800/70";
 
   useEffect(() => {
     setIsMoreOpen(false);
@@ -51,8 +53,8 @@ export function MobileNav() {
   }, []);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/90 px-2 pb-[calc(6px+env(safe-area-inset-bottom))] pt-1.5 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-950/90">
-      <ul className="grid grid-cols-5 gap-1">
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/94 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-950/94">
+      <ul className="mx-auto grid w-full max-w-md grid-cols-5 gap-1.5 rounded-2xl bg-slate-100/70 p-1.5 dark:bg-slate-900/80">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
@@ -60,13 +62,11 @@ export function MobileNav() {
             <li key={item.href}>
               <Link
                 href={item.href}
-                className={`flex flex-col items-center rounded-md py-1.5 text-[11px] leading-tight ${
-                  isActive
-                    ? "text-blue-600 dark:text-blue-300"
-                    : "text-slate-500 dark:text-slate-400"
+                className={`flex min-h-14 flex-col items-center justify-center rounded-xl px-1 py-2 text-xs font-medium leading-tight transition ${
+                  isActive ? activeItemClass : inactiveItemClass
                 }`}
               >
-                <Icon className="mb-1 h-4.5 w-4.5" />
+                <Icon className="mb-1 h-5 w-5" />
                 {item.label}
               </Link>
             </li>
@@ -78,19 +78,17 @@ export function MobileNav() {
             onClick={() => setIsMoreOpen((open) => !open)}
             aria-expanded={isMoreOpen}
             aria-haspopup="menu"
-            className={`flex w-full flex-col items-center rounded-md py-1.5 text-[11px] leading-tight ${
-              isMoreActive || isMoreOpen
-                ? "text-blue-600 dark:text-blue-300"
-                : "text-slate-500 dark:text-slate-400"
+            className={`flex min-h-14 w-full flex-col items-center justify-center rounded-xl px-1 py-2 text-xs font-medium leading-tight transition ${
+              isMoreActive || isMoreOpen ? activeItemClass : inactiveItemClass
             }`}
           >
-            <Ellipsis className="mb-1 h-4.5 w-4.5" />
+            <Ellipsis className="mb-1 h-5 w-5" />
             More
           </button>
           {isMoreOpen ? (
             <div
               role="menu"
-              className="absolute bottom-[calc(100%+8px)] right-0 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              className="absolute bottom-[calc(100%+10px)] right-0 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
             >
               {moreItems.map((item) => {
                 const isItemActive = pathname === item.href;
@@ -99,7 +97,7 @@ export function MobileNav() {
                     key={item.href}
                     href={item.href}
                     role="menuitem"
-                    className={`block px-3 py-2 text-xs transition hover:bg-slate-100 dark:hover:bg-slate-800 ${
+                    className={`block px-3.5 py-2.5 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800 ${
                       isItemActive
                         ? "text-blue-600 dark:text-blue-300"
                         : "text-slate-700 dark:text-slate-200"

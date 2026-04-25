@@ -12,7 +12,14 @@ import {
 import { DEFAULT_GOALS, DEFAULT_ROUTINES } from "@/lib/defaults";
 import type { Goals, Preferences, RunLog, StretchRoutine, TrainingRecommendation, TrainingPlanMetadata } from "@/lib/types";
 import { inferTrainingPlanMetadata } from "@/lib/aiData";
+import { fallbackRunTitle } from "@/lib/aiFallbacks";
 import { TrainingPlanMetadataModal } from "./TrainingPlanMetadataModal";
+
+type RunAiSummaryUpdate = {
+  title?: string;
+  summary: string;
+  signals?: string[];
+};
 
 type RunTrackContextValue = {
   runs: RunLog[];
@@ -23,7 +30,7 @@ type RunTrackContextValue = {
   routines: StretchRoutine[];
   addRun: (run: Omit<RunLog, "id" | "createdAt">) => void;
   updateRun: (id: string, run: Omit<RunLog, "id" | "createdAt">) => void;
-  updateRunAiSummary: (id: string, summary: string, signals?: string[]) => void;
+  updateRunAiSummary: (id: string, next: RunAiSummaryUpdate) => void;
   replaceTrainingRecommendations: (planName: string, recommendations: Omit<TrainingRecommendation, "id">[]) => Promise<void>;
   clearTrainingPlan: () => void;
   deleteRun: (id: string) => void;
@@ -38,6 +45,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   darkMode: false,
   unit: "miles",
 };
+
+const WEEKLY_INSIGHTS_REFRESH_KEY = "runtrack:weekly-insights-refresh";
 
 const RunTrackContext = createContext<RunTrackContextValue | undefined>(undefined);
 
@@ -205,12 +214,13 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       throw new Error("Failed to generate run summary.");
     }
 
-    const data = (await response.json()) as { summary?: string; signals?: string[] };
-    if (!data.summary || typeof data.summary !== "string") {
-      throw new Error("Run summary response missing summary text.");
+    const data = (await response.json()) as { title?: string; summary?: string; signals?: string[] };
+    if (!data.title || typeof data.title !== "string" || !data.summary || typeof data.summary !== "string") {
+      throw new Error("Run summary response missing title or summary text.");
     }
 
     return {
+      title: data.title.trim(),
       summary: data.summary.trim(),
       signals: Array.isArray(data.signals)
         ? data.signals.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 4)
@@ -223,11 +233,18 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       ...run,
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
+      title: run.title.trim() || fallbackRunTitle({ distanceMiles: run.distanceMiles, runType: run.runType }),
     };
 
     setRuns((prev) => {
       const updated = [next, ...prev];
-      void persistUserData({ runs: updated });
+      void persistUserData({ runs: updated })
+        .then(() => {
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(WEEKLY_INSIGHTS_REFRESH_KEY, "1");
+          }
+        })
+        .catch(() => undefined);
       return updated;
     });
 
@@ -238,6 +255,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
             item.id === next.id
               ? {
                   ...item,
+                  title: result.title,
                   aiSummary: result.summary,
                   aiSignals: result.signals,
                 }
@@ -277,14 +295,15 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
     });
   }, [persistUserData]);
 
-  const updateRunAiSummary = useCallback((id: string, summary: string, signals: string[] = []) => {
+  const updateRunAiSummary = useCallback((id: string, next: RunAiSummaryUpdate) => {
     setRuns((prev) => {
       const updated = prev.map((item) =>
         item.id === id
           ? {
               ...item,
-              aiSummary: summary,
-              aiSignals: signals,
+              title: next.title?.trim() || item.title,
+              aiSummary: next.summary,
+              aiSignals: next.signals ?? [],
             }
           : item
       );

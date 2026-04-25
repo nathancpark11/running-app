@@ -27,6 +27,7 @@ type AddRunFormValues = {
 
 type AddRunFormProps = {
   onSubmit: (values: AddRunFormValues) => void;
+  initialOpen?: boolean;
 };
 
 const runTypes: RunType[] = ["Easy", "Long", "Tempo", "Recovery", "Intervals", "Hills", "Hike", "Race"];
@@ -53,8 +54,8 @@ function defaultValues(): AddRunFormValues {
     title: "",
     surface: "Treadmill",
     durationHours: 0,
-    distanceMiles: 5,
-    durationMinutes: 45,
+    distanceMiles: 0,
+    durationMinutes: 0,
     durationSeconds: 0,
     runType: "Easy",
     notes: "",
@@ -69,12 +70,9 @@ function defaultValues(): AddRunFormValues {
   };
 }
 
-export function AddRunForm({ onSubmit }: AddRunFormProps) {
+export function AddRunForm({ onSubmit, initialOpen = false }: AddRunFormProps) {
   const [values, setValues] = useState<AddRunFormValues>(defaultValues);
-  const [isOpen, setIsOpen] = useState(false);
-  const [descriptionDraft, setDescriptionDraft] = useState("");
-  const [parseState, setParseState] = useState<"idle" | "parsing" | "error">("idle");
-  const [parseError, setParseError] = useState("");
+  const [isOpen, setIsOpen] = useState(initialOpen);
   const showTreadmillFields = values.runType === "Tempo" || values.runType === "Intervals";
   const showHoursField = values.runType === "Long" || values.runType === "Race";
 
@@ -114,84 +112,7 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
     event.preventDefault();
     onSubmit(values);
     setValues(defaultValues());
-    setDescriptionDraft("");
-    setParseError("");
-    setParseState("idle");
     setIsOpen(false);
-  }
-
-  async function parseDescriptionWithAi() {
-    const description = descriptionDraft.trim();
-    if (!description) {
-      setParseError("Enter a run description first.");
-      setParseState("error");
-      return;
-    }
-
-    setParseError("");
-    setParseState("parsing");
-
-    try {
-      const response = await fetch("/api/ai/parse-run", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ description }),
-      });
-
-      const data = (await response.json()) as ParsedRunDetails & { error?: string };
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to parse run.");
-      }
-
-      setValues((prev) => {
-        const next = { ...prev };
-
-        if (typeof data.distanceMiles === "number" && data.distanceMiles > 0) {
-          next.distanceMiles = Number(data.distanceMiles.toFixed(2));
-        }
-
-        if (typeof data.durationMinutes === "number" && data.durationMinutes > 0) {
-          const totalSeconds = Math.round(data.durationMinutes * 60);
-          next.durationHours = Math.floor(totalSeconds / 3600);
-          next.durationMinutes = Math.floor((totalSeconds % 3600) / 60);
-          next.durationSeconds = totalSeconds % 60;
-        }
-
-        if (data.runType) {
-          next.runType = data.runType;
-        }
-
-        if (typeof data.effortLevel === "number" && data.effortLevel >= 1) {
-          next.energyLevel = Math.max(1, Math.min(10, 11 - Math.round(data.effortLevel)));
-        }
-
-        if (Array.isArray(data.sorenessTightness) && data.sorenessTightness.length > 0) {
-          next.soreness = Math.max(next.soreness, Math.min(10, 2 + data.sorenessTightness.length));
-        }
-
-        const mergedNotes = [
-          data.notes?.trim(),
-          data.weather ? `Conditions: ${data.weather}` : "",
-          data.fatigueIndicators?.length ? `Fatigue: ${data.fatigueIndicators.join(", ")}` : "",
-          data.sorenessTightness?.length ? `Soreness/Tightness: ${data.sorenessTightness.join(", ")}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n");
-
-        if (mergedNotes) {
-          next.notes = mergedNotes;
-        }
-
-        next.structuredNotes = data;
-
-        return next;
-      });
-
-      setParseState("idle");
-    } catch (error) {
-      setParseError(error instanceof Error ? error.message : "Failed to parse run.");
-      setParseState("error");
-    }
   }
 
   if (!isOpen) {
@@ -200,9 +121,6 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
         type="button"
         onClick={() => {
           setValues(defaultValues());
-          setDescriptionDraft("");
-          setParseError("");
-          setParseState("idle");
           setIsOpen(true);
         }}
         className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
@@ -241,41 +159,33 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
             </div>
           </summary>
 
-          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-500/30 dark:bg-blue-500/10">
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-200">Describe your run</p>
-            <p className="mt-1 text-xs text-blue-700/90 dark:text-blue-100/80">Optional: auto-fill run details from free text.</p>
-            <textarea
-              value={descriptionDraft}
-              onChange={(event) => setDescriptionDraft(event.target.value)}
-              className="mt-2 min-h-16 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-blue-500/30 dark:bg-slate-950 dark:text-slate-100"
-              placeholder="Easy 4 miles, humid, legs felt heavy, almost quit halfway."
-            />
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  void parseDescriptionWithAi();
-                }}
-                disabled={parseState === "parsing"}
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {parseState === "parsing" ? "Parsing..." : "Parse with AI"}
-              </button>
-              {parseError ? <p className="text-xs text-red-600 dark:text-red-300">{parseError}</p> : null}
-            </div>
-          </div>
-
           <div className="mt-3 space-y-4">
             <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1 text-sm">
-                <span className="text-slate-600 dark:text-slate-300">Run Title</span>
-                <input
-                  value={values.title}
-                  onChange={(e) => update("title", e.target.value)}
+                <span className="text-slate-600 dark:text-slate-300">Run Type</span>
+                <select
+                  value={values.runType}
+                  onChange={(e) => {
+                    const nextRunType = e.target.value as RunType;
+                    update("runType", nextRunType);
+                    if (!(nextRunType === "Long" || nextRunType === "Race")) {
+                      update("durationHours", 0);
+                    }
+                    if (!(nextRunType === "Tempo" || nextRunType === "Intervals")) {
+                      update("treadmillPace", defaultPaceForSurface(values.surface));
+                      update("treadmillPaceDurationMinutes", 20);
+                      update("intervalCount", 4);
+                      update("restTimeMinutes", 2);
+                    }
+                  }}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                  placeholder="Sunrise Tempo"
-                  required
-                />
+                >
+                  {runTypes.map((runType) => (
+                    <option key={runType} value={runType}>
+                      {runType}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="space-y-1 text-sm">
@@ -315,9 +225,10 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={values.distanceMiles}
+                  value={values.distanceMiles === 0 ? "" : values.distanceMiles}
                   onChange={(e) => update("distanceMiles", Number(e.target.value))}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 placeholder:italic placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:placeholder:text-slate-500"
+                  placeholder="Miles logged"
                   required
                 />
               </label>
@@ -330,10 +241,10 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
                       type="number"
                       min="0"
                       step="1"
-                      value={values.durationHours}
+                      value={values.durationHours === 0 ? "" : values.durationHours}
                       onChange={(e) => update("durationHours", Math.max(0, Number(e.target.value)))}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                      placeholder="Hr"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 placeholder:italic placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:placeholder:text-slate-500"
+                      placeholder="Hours"
                       required
                     />
                   ) : null}
@@ -341,10 +252,10 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
                     type="number"
                     min="0"
                     step="1"
-                    value={values.durationMinutes}
+                    value={values.durationMinutes === 0 ? "" : values.durationMinutes}
                     onChange={(e) => update("durationMinutes", Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                    placeholder="Min"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 placeholder:italic placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:placeholder:text-slate-500"
+                    placeholder="Minutes"
                     required
                   />
                   <input
@@ -352,40 +263,13 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
                     min="0"
                     max="59"
                     step="1"
-                    value={values.durationSeconds}
+                    value={values.durationSeconds === 0 ? "" : values.durationSeconds}
                     onChange={(e) => update("durationSeconds", Math.min(59, Math.max(0, Number(e.target.value))))}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                    placeholder="Sec"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 placeholder:italic placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:placeholder:text-slate-500"
+                    placeholder="Seconds"
                     required
                   />
                 </div>
-              </label>
-
-              <label className="space-y-1 text-sm">
-                <span className="text-slate-600 dark:text-slate-300">Run Type</span>
-                <select
-                  value={values.runType}
-                  onChange={(e) => {
-                    const nextRunType = e.target.value as RunType;
-                    update("runType", nextRunType);
-                    if (!(nextRunType === "Long" || nextRunType === "Race")) {
-                      update("durationHours", 0);
-                    }
-                    if (!(nextRunType === "Tempo" || nextRunType === "Intervals")) {
-                      update("treadmillPace", defaultPaceForSurface(values.surface));
-                      update("treadmillPaceDurationMinutes", 20);
-                      update("intervalCount", 4);
-                      update("restTimeMinutes", 2);
-                    }
-                  }}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                >
-                  {runTypes.map((runType) => (
-                    <option key={runType} value={runType}>
-                      {runType}
-                    </option>
-                  ))}
-                </select>
               </label>
 
               <div className="space-y-1 text-sm">
@@ -508,9 +392,9 @@ export function AddRunForm({ onSubmit }: AddRunFormProps) {
           </summary>
 
           <div className="mt-3 space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 grid-cols-2">
               <label className="space-y-1 text-sm">
-                <span className="text-slate-600 dark:text-slate-300">Energy Level (1-10)</span>
+                <span className="text-slate-600 dark:text-slate-300">Effort Level (1-10)</span>
                 <select
                   value={values.energyLevel}
                   onChange={(e) => update("energyLevel", Number(e.target.value))}

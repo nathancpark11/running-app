@@ -1,6 +1,7 @@
 export type RunType =
   | "Easy"
   | "Long"
+  | "Endurance"
   | "Tempo"
   | "Recovery"
   | "Intervals"
@@ -157,6 +158,8 @@ export type TodayFocusPayload = {
   trainingTitle: string | null;
   plannedRunType?: RunType | null;
   plannedDistance?: number | null;
+  tempoAtPaceSuggestion?: string | null;
+  plannedWorkoutSuggestion?: string | null;
 };
 
 export type StretchRecommendationPayload = {

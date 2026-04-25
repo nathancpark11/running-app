@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const STRETCH_TIMER_SESSION_KEY = "runtrack.stretchTimer.session";
+let sharedAudioContext: AudioContext | null = null;
 
 type StretchTimerSession = {
   running: boolean;
@@ -46,7 +47,14 @@ function playTone(frequency: number, durationSeconds: number) {
       return;
     }
 
-    const context = new AudioContextClass();
+    if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+      sharedAudioContext = new AudioContextClass();
+    }
+    const context = sharedAudioContext;
+    if (context.state === "suspended") {
+      void context.resume();
+    }
+
     const oscillator = context.createOscillator();
     const gain = context.createGain();
 
@@ -62,9 +70,6 @@ function playTone(frequency: number, durationSeconds: number) {
 
     oscillator.start();
     oscillator.stop(context.currentTime + durationSeconds + 0.02);
-    oscillator.onended = () => {
-      void context.close();
-    };
   } catch {
     // Ignore audio playback failures (browser/device restrictions).
   }
@@ -85,8 +90,23 @@ function tickSession(session: StretchTimerSession): StretchTimerSession {
 
   const next = { ...session };
 
-  if (next.secondsLeft <= 1) {
+  if (next.secondsLeft <= 0) {
     if (next.phase === "stretch") {
+      const isLastStretch = next.currentIndex === next.steps.length - 1;
+      if (isLastStretch) {
+        const firstStep = next.steps[0];
+        const secondStep = next.steps[1] ?? firstStep;
+        next.running = false;
+        next.phase = "stretch";
+        next.currentIndex = 0;
+        next.queuedNextIndex = null;
+        next.secondsLeft = firstStep.durationSeconds;
+        next.phaseDurationSeconds = firstStep.durationSeconds;
+        next.currentLabel = stepLabel({ name: firstStep.name, round: firstStep.round });
+        next.upNextLabel = stepLabel({ name: secondStep.name, round: secondStep.round });
+        return next;
+      }
+
       const nextIndex = (next.currentIndex + 1) % next.steps.length;
       const nextStep = next.steps[nextIndex];
       const effectiveTransitionSeconds = nextStep.durationSeconds === 60 ? 10 : next.transitionSeconds;
@@ -122,6 +142,7 @@ function tickSession(session: StretchTimerSession): StretchTimerSession {
 
 export function StretchTimerMiniModal() {
   const pathname = usePathname();
+  const router = useRouter();
   const [session, setSession] = useState<StretchTimerSession | null>(null);
   const lastBeepCueRef = useRef<string | null>(null);
   const lastEndToneCueRef = useRef<string | null>(null);
@@ -193,9 +214,25 @@ export function StretchTimerMiniModal() {
   const strokeDashoffset = circumference - progress * circumference;
   const transitionDashoffset = -(1 - session.secondsLeft / duration) * circumference;
   const ringDashoffset = session.phase === "transition" ? transitionDashoffset : strokeDashoffset;
+  const ringStrokeClass =
+    session.phase === "transition"
+      ? "stroke-amber-500 transition-[stroke-dashoffset] duration-1000 ease-linear"
+      : "stroke-violet-500 transition-[stroke-dashoffset] duration-1000 ease-linear";
 
   return (
-    <aside className="fixed right-4 bottom-20 z-60 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-xl md:bottom-4 dark:border-slate-800 dark:bg-slate-900">
+    <aside
+      className="fixed right-4 bottom-20 z-60 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-xl md:bottom-4 dark:border-slate-800 dark:bg-slate-900"
+      onClick={() => router.push("/stretch-timer")}
+      role="button"
+      tabIndex={0}
+      aria-label="Open stretch timer"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          router.push("/stretch-timer");
+        }
+      }}
+    >
       <div className="flex items-center gap-2">
         <div className="relative h-12 w-12 shrink-0">
           <svg width="48" height="48" className="-rotate-90">
@@ -205,7 +242,7 @@ export function StretchTimerMiniModal() {
               cy="24"
               r={radius}
               strokeWidth="4"
-              className="stroke-violet-500 transition-[stroke-dashoffset] duration-1000 ease-linear"
+              className={ringStrokeClass}
               fill="none"
               strokeLinecap="round"
               strokeDasharray={circumference}
@@ -213,7 +250,7 @@ export function StretchTimerMiniModal() {
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-slate-700 dark:text-slate-200">
-            {session.secondsLeft}s
+            {session.secondsLeft}
           </div>
         </div>
 

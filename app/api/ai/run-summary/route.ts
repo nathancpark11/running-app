@@ -17,6 +17,7 @@ type RunSummaryRequest = {
 };
 
 type RunSummaryResponse = {
+  title: string;
   summary: string;
   signals: string[];
 };
@@ -75,12 +76,13 @@ export async function POST(request: Request) {
       weather: normalized.weather,
     });
 
+    const title = typeof ai.title === "string" ? ai.title.trim() : "";
     const summary = typeof ai.summary === "string" ? ai.summary.trim() : "";
     const signals = Array.isArray(ai.signals)
       ? ai.signals.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 3)
       : [];
 
-    if (!summary) {
+    if (!title || !summary) {
       return Response.json(fallbackRunSummary({
         distanceMiles: normalized.distanceMiles,
         durationMinutes: normalized.durationMinutes,
@@ -92,7 +94,7 @@ export async function POST(request: Request) {
       }));
     }
 
-    return Response.json({ summary, signals } satisfies RunSummaryResponse);
+    return Response.json({ title, summary, signals } satisfies RunSummaryResponse);
   } catch {
     return Response.json({ error: "Failed to generate run summary." }, { status: 500 });
   }

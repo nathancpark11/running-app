@@ -3,11 +3,15 @@
 import { useMemo } from "react";
 import { StatCard } from "@/components/StatCard";
 import { useRunTrack } from "@/components/RunTrackProvider";
-import { formatPace, isDateInCurrentMonth, isDateInCurrentWeek } from "@/lib/format";
-import { Activity, Gauge, Route, TrendingUp } from "lucide-react";
+import { formatDuration, formatPace, isDateInCurrentMonth, isDateInCurrentWeek } from "@/lib/format";
+import { Activity, Clock3, Gauge, Route, TrendingUp } from "lucide-react";
 
 export default function StatsPage() {
   const { runs } = useRunTrack();
+
+  const totalMiles = runs.reduce((sum, run) => sum + run.distanceMiles, 0);
+  const totalMinutes = runs.reduce((sum, run) => sum + run.durationMinutes, 0);
+  const averagePace = runs.length ? runs.reduce((sum, run) => sum + run.paceMinPerMile, 0) / runs.length : 0;
 
   const milesThisWeek = runs
     .filter((run) => isDateInCurrentWeek(run.date))
@@ -60,6 +64,13 @@ export default function StatsPage() {
 
   return (
     <div className="space-y-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Total Miles" value={`${totalMiles.toFixed(1)} mi`} icon={Route} accent="blue" />
+        <StatCard label="Total Runs" value={`${runs.length}`} icon={TrendingUp} accent="green" />
+        <StatCard label="Total Time" value={formatDuration(totalMinutes)} icon={Clock3} accent="blue" />
+        <StatCard label="Avg Pace" value={runs.length ? formatPace(averagePace) : "0:00/mi"} icon={Gauge} accent="violet" />
+      </section>
+
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Miles This Week" value={`${milesThisWeek.toFixed(1)} mi`} icon={Route} accent="green" />
         <StatCard label="Miles This Month" value={`${milesThisMonth.toFixed(1)} mi`} icon={TrendingUp} accent="blue" />

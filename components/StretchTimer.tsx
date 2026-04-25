@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { Check, Pause, Play } from "lucide-react";
+import { formatDuration } from "@/lib/format";
 import type { StretchRoutine } from "@/lib/types";
 
 const STRETCH_TIMER_SESSION_KEY = "runtrack.stretchTimer.session";
 const PREFERRED_ROUTINE_NAME = "Post Run Stretch";
 const ROUTINE_NAME_PLACEHOLDER = "Post Run Mobility";
+let sharedAudioContext: AudioContext | null = null;
 
 type StretchTimerProps = {
   routines: StretchRoutine[];
@@ -77,7 +79,14 @@ function playTone(frequency: number, durationSeconds: number) {
       return;
     }
 
-    const context = new AudioContextClass();
+    if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+      sharedAudioContext = new AudioContextClass();
+    }
+    const context = sharedAudioContext;
+    if (context.state === "suspended") {
+      void context.resume();
+    }
+
     const oscillator = context.createOscillator();
     const gain = context.createGain();
 
@@ -93,9 +102,6 @@ function playTone(frequency: number, durationSeconds: number) {
 
     oscillator.start();
     oscillator.stop(context.currentTime + durationSeconds + 0.02);
-    oscillator.onended = () => {
-      void context.close();
-    };
   } catch {
     // Ignore audio playback failures (browser/device restrictions).
   }
@@ -126,6 +132,14 @@ function routineLabel(name: string): string {
   return trimmed.length > 0 ? trimmed : ROUTINE_NAME_PLACEHOLDER;
 }
 
+function transitionDurationForStep(step: StretchStep | undefined, transitionSeconds: number): number {
+  if (!step) {
+    return 0;
+  }
+
+  return step.item.durationSeconds === 60 ? 10 : transitionSeconds;
+}
+
 export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   const [routineIndex, setRoutineIndex] = useState(() => findPreferredRoutineIndex(routines));
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -133,9 +147,11 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   const [transitionSeconds, setTransitionSeconds] = useState(4);
   const [phase, setPhase] = useState<"stretch" | "transition">("stretch");
   const [queuedNextIndex, setQueuedNextIndex] = useState<number | null>(null);
+  const [showCompletionState, setShowCompletionState] = useState(false);
   const [sessionHydrated, setSessionHydrated] = useState(false);
   const lastBeepCueRef = useRef<string | null>(null);
   const lastEndToneCueRef = useRef<string | null>(null);
+  const completionTimeoutRef = useRef<number | null>(null);
 
   const activeRoutine = routines[routineIndex] ?? routines[0];
   const normalizedItems = useMemo(() => {
@@ -166,6 +182,35 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   const effectiveTransitionSeconds = upcomingStep?.item.durationSeconds === 60 ? 10 : transitionSeconds;
   const [secondsLeft, setSecondsLeft] = useState(activeStep?.item.durationSeconds ?? 0);
 
+  function clearCompletionTimer() {
+    if (completionTimeoutRef.current !== null) {
+      window.clearTimeout(completionTimeoutRef.current);
+      completionTimeoutRef.current = null;
+    }
+  }
+
+  function completeRoutine() {
+    if (steps.length === 0) {
+      return;
+    }
+
+    clearCompletionTimer();
+    setRunning(false);
+    setShowCompletionState(true);
+    setPhase("stretch");
+    setQueuedNextIndex(null);
+    setSecondsLeft(0);
+
+    completionTimeoutRef.current = window.setTimeout(() => {
+      setCurrentIndex(0);
+      setPhase("stretch");
+      setQueuedNextIndex(null);
+      setSecondsLeft(steps[0]?.item.durationSeconds ?? 0);
+      setShowCompletionState(false);
+      completionTimeoutRef.current = null;
+    }, 1600);
+  }
+
   useEffect(() => {
     if (steps.length === 0) {
       return;
@@ -180,19 +225,31 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   }, [steps, currentIndex]);
 
   useEffect(() => {
-    if (!running || steps.length === 0) {
+    return () => {
+      clearCompletionTimer();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!running || steps.length === 0 || showCompletionState) {
       return;
     }
 
     const interval = window.setInterval(() => {
       setSecondsLeft((prev) => {
-        if (prev <= 1) {
+        if (prev <= 0) {
           if (phase === "stretch") {
+            const isLastStretch = currentIndex === steps.length - 1;
             const nextIndex = (currentIndex + 1) % steps.length;
             const endCue = `${phase}:${currentIndex}:${queuedNextIndex ?? "none"}`;
             if (lastEndToneCueRef.current !== endCue) {
               playCountdownEndTone();
               lastEndToneCueRef.current = endCue;
+            }
+
+            if (isLastStretch) {
+              completeRoutine();
+              return 0;
             }
 
             if (effectiveTransitionSeconds > 0) {
@@ -216,7 +273,7 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [running, currentIndex, steps, phase, queuedNextIndex, effectiveTransitionSeconds]);
+  }, [running, currentIndex, steps, phase, queuedNextIndex, effectiveTransitionSeconds, showCompletionState]);
 
   useEffect(() => {
     if (!running) {
@@ -245,16 +302,51 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
     return 1 - secondsLeft / duration;
   }, [activeStep, secondsLeft, phase, effectiveTransitionSeconds]);
 
+  const totalTimeLeftLabel = useMemo(() => {
+    if (!activeStep || steps.length === 0) {
+      return formatDuration(0);
+    }
+
+    let totalRemainingSeconds = Math.max(0, secondsLeft);
+
+    if (phase === "stretch") {
+      for (let index = currentIndex + 1; index < steps.length; index += 1) {
+        totalRemainingSeconds += transitionDurationForStep(steps[index], transitionSeconds);
+        totalRemainingSeconds += steps[index]?.item.durationSeconds ?? 0;
+      }
+    } else {
+      const nextStretchIndex = queuedNextIndex ?? currentIndex + 1;
+
+      for (let index = nextStretchIndex; index < steps.length; index += 1) {
+        totalRemainingSeconds += steps[index]?.item.durationSeconds ?? 0;
+
+        if (index < steps.length - 1) {
+          totalRemainingSeconds += transitionDurationForStep(steps[index + 1], transitionSeconds);
+        }
+      }
+    }
+
+    return formatDuration(totalRemainingSeconds / 60);
+  }, [activeStep, currentIndex, phase, queuedNextIndex, secondsLeft, steps, transitionSeconds]);
+
   if (!activeRoutine || !activeStep) {
     return null;
   }
 
-  const radius = compact ? 44 : 62;
+  const radius = compact ? 44 : 124;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - progress * circumference;
-  const transitionDashoffset =
-    -(1 - secondsLeft / Math.max(1, effectiveTransitionSeconds)) * circumference;
-  const ringDashoffset = phase === "transition" ? transitionDashoffset : strokeDashoffset;
+  const transitionDashoffset = -(1 - secondsLeft / Math.max(1, effectiveTransitionSeconds)) * circumference;
+  const ringDashoffset = showCompletionState
+    ? 0
+    : phase === "transition"
+      ? transitionDashoffset
+      : strokeDashoffset;
+  const ringStrokeClass = showCompletionState
+    ? "stroke-emerald-500"
+    : phase === "transition"
+      ? "stroke-amber-500 transition-[stroke-dashoffset] duration-1000 ease-linear"
+      : "stroke-violet-500 transition-[stroke-dashoffset] duration-1000 ease-linear";
   const nextIndexForUpNext =
     phase === "transition"
       ? (queuedNextIndex !== null ? (queuedNextIndex + 1) % steps.length : (currentIndex + 1) % steps.length)
@@ -263,12 +355,22 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   const upNext = steps[nextIndexForUpNext];
 
   function toggleRunning() {
+    clearCompletionTimer();
     setRunning((prev) => {
       if (prev) {
+        setShowCompletionState(false);
         setPhase("stretch");
         setQueuedNextIndex(null);
         setSecondsLeft(activeStep.item.durationSeconds);
         return false;
+      }
+
+      if (showCompletionState) {
+        setCurrentIndex(0);
+        setPhase("stretch");
+        setQueuedNextIndex(null);
+        setSecondsLeft(steps[0]?.item.durationSeconds ?? 0);
+        setShowCompletionState(false);
       }
       return true;
     });
@@ -280,10 +382,12 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
       return;
     }
 
+    clearCompletionTimer();
     setCurrentIndex(nextIndex);
     setPhase("stretch");
     setQueuedNextIndex(null);
     setSecondsLeft(steps[nextIndex].item.durationSeconds);
+    setShowCompletionState(false);
     setRunning(false);
   }
 
@@ -387,7 +491,8 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   }, [sessionHydrated, running, phase, currentIndex, queuedNextIndex, transitionSeconds, secondsLeft, steps, activeStep, transitionTargetStep, upNext]);
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4 pt-1">
+      <p className="absolute top-0 right-0 text-xs text-slate-500 dark:text-slate-400">Total time left: {totalTimeLeftLabel}</p>
       <div className="relative mx-auto w-fit py-2">
         <svg width={radius * 2 + 20} height={radius * 2 + 20} className="-rotate-90">
           <circle
@@ -403,7 +508,7 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
             cy={radius + 10}
             r={radius}
             strokeWidth="10"
-              className="stroke-violet-500 transition-[stroke-dashoffset] duration-1000 ease-linear"
+              className={ringStrokeClass}
             fill="none"
             strokeLinecap="round"
             strokeDasharray={circumference}
@@ -411,19 +516,29 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">{secondsLeft}s</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">remaining</p>
+          {showCompletionState ? (
+            <>
+              <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300">
+                <Check className="h-8 w-8" />
+              </span>
+              <p className="mt-2 text-2xl font-semibold text-emerald-700 dark:text-emerald-300">Complete</p>
+            </>
+          ) : (
+            <p className="text-6xl font-semibold text-slate-900 dark:text-slate-100">{secondsLeft}</p>
+          )}
         </div>
       </div>
 
       <div className="space-y-4 py-1">
         <p className="text-center text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          {phase === "transition" ? "Up next" : "Current stretch"}
+          {showCompletionState ? "Routine" : phase === "transition" ? "Up next" : "Current stretch"}
         </p>
-        <h3 className="-mt-2 text-center text-xl font-semibold text-slate-900 dark:text-slate-100">
-          {phase === "transition"
-            ? renderStretchName(transitionTargetStep.item.name, transitionTargetStep.round)
-            : renderStretchName(activeStep.item.name, activeStep.round)}
+        <h3 className="-mt-2 text-center text-4xl font-semibold text-slate-900 dark:text-slate-100">
+          {showCompletionState
+            ? "Complete"
+            : phase === "transition"
+              ? renderStretchName(transitionTargetStep.item.name, transitionTargetStep.round)
+              : renderStretchName(activeStep.item.name, activeStep.round)}
         </h3>
 
         <button
@@ -443,12 +558,14 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
             onChange={(e) => {
               const nextIdx = routines.findIndex((routine) => routine.id === e.target.value);
               if (nextIdx >= 0) {
+                clearCompletionTimer();
                 setRoutineIndex(nextIdx);
                 setCurrentIndex(0);
                 setPhase("stretch");
                 setQueuedNextIndex(null);
                 const nextItems = normalizeRoutineItems(routines[nextIdx]?.items ?? []);
                 setSecondsLeft(nextItems[0]?.durationSeconds ?? 0);
+                setShowCompletionState(false);
                 setRunning(false);
               }
             }}

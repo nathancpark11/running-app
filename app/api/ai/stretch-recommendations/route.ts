@@ -7,6 +7,7 @@ import { getAuthenticatedUserId } from "@/lib/session";
 import type { StretchRecommendationPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
+const STRETCH_RECOMMENDATION_CACHE_VERSION = "v2";
 
 export async function GET(request: Request) {
   const userId = await getAuthenticatedUserId();
@@ -20,7 +21,9 @@ export async function GET(request: Request) {
     const forceRefresh = url.searchParams.get("refresh") === "1";
     const today = new Date();
 
-    const cacheKey = runId ? makeCacheKey(["run", runId]) : makeCacheKey(["date", toDateKey(today)]);
+    const cacheKey = runId
+      ? makeCacheKey([STRETCH_RECOMMENDATION_CACHE_VERSION, "run", runId])
+      : makeCacheKey([STRETCH_RECOMMENDATION_CACHE_VERSION, "date", toDateKey(today)]);
 
     if (!forceRefresh) {
       const cached = await getCachedInsight<StretchRecommendationPayload>(userId, "stretch_recommendation", cacheKey);

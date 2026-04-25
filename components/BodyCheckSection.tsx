@@ -170,6 +170,7 @@ function sideForRegion(regionId: BodyRegionId): "left" | "right" | null {
 export function BodyCheckSection({ value, onChange, showHeader = true }: BodyCheckSectionProps) {
   const [activeRegion, setActiveRegion] = useState<BodyRegionId | null>(null);
   const [draftEntries, setDraftEntries] = useState<RunHealthCheckEntry[]>([]);
+  const [mapView, setMapView] = useState<"front" | "back">("front");
 
   const selectedRegions = useMemo(() => {
     const selected = new Set<BodyRegionId>(value.entries.map((entry) => entry.region));
@@ -260,20 +261,22 @@ export function BodyCheckSection({ value, onChange, showHeader = true }: BodyChe
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-          <p className="mb-3 text-center text-sm font-semibold text-slate-400">FRONT</p>
-          <BodyMap
-            view="front"
-            selectedRegions={selectedRegionList}
-            onRegionClick={openRegion}
-          />
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Body map</p>
+          <button
+            type="button"
+            onClick={() => setMapView((current) => (current === "front" ? "back" : "front"))}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
+          >
+            Show {mapView === "front" ? "Back" : "Front"}
+          </button>
         </div>
 
         <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-          <p className="mb-3 text-center text-sm font-semibold text-slate-400">BACK</p>
+          <p className="mb-3 text-center text-sm font-semibold text-slate-400">{mapView.toUpperCase()}</p>
           <BodyMap
-            view="back"
+            view={mapView}
             selectedRegions={selectedRegionList}
             onRegionClick={openRegion}
           />
