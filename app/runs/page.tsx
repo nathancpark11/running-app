@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AddRunForm } from "@/components/AddRunForm";
 import { RunCard } from "@/components/RunCard";
@@ -91,7 +91,7 @@ function toEditValues(run: RunLog): EditRunValues {
   };
 }
 
-export default function RunsPage() {
+function RunsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { runs, addRun, updateRun, updateRunAiSummary, deleteRun } = useRunTrack();
@@ -526,5 +526,13 @@ export default function RunsPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export default function RunsPage() {
+  return (
+    <Suspense fallback={<div className="py-6 text-sm text-slate-500 dark:text-slate-400">Loading runs...</div>}>
+      <RunsPageContent />
+    </Suspense>
   );
 }

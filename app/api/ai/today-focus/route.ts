@@ -201,9 +201,18 @@ function summarizeTempoHistory(tempoRuns: RunLog[]): {
   averageTempoMph: number | null;
   averageTempoBlockMinutes: number | null;
 } {
+  const resolveEffortLevel = (run: RunLog): number | null => {
+    const parsedEffort = run.structuredNotes?.effortLevel;
+    if (typeof parsedEffort === "number" && Number.isFinite(parsedEffort) && parsedEffort > 0) {
+      return parsedEffort;
+    }
+
+    return Number.isFinite(run.energyLevel) && run.energyLevel > 0 ? run.energyLevel : null;
+  };
+
   const withEffort = tempoRuns
-    .map((run) => run.effortLevel)
-    .filter((value): value is number => Number.isFinite(value) && value > 0);
+    .map((run) => resolveEffortLevel(run))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
 
   const withPace = tempoRuns
     .map((run) => run.paceMinPerMile)
@@ -401,7 +410,10 @@ export async function GET(request: Request) {
         date: run.date,
         durationMinutes: run.durationMinutes,
         paceMinPerMile: run.paceMinPerMile,
-        effortLevel: run.effortLevel,
+        effortLevel:
+          typeof run.structuredNotes?.effortLevel === "number" && Number.isFinite(run.structuredNotes.effortLevel)
+            ? run.structuredNotes.effortLevel
+            : run.energyLevel,
         estimatedTempoBlockMinutes: extractTempoBlockMinutesFromNotes(run.notes),
         notes: run.notes.slice(0, 140),
       })),
