@@ -110,18 +110,12 @@ export function fallbackInjuryRisk(input: {
 
   return {
     riskLevel: level,
-    explanation:
+    suggestion:
       level === "high"
-        ? `Load warning: mileage up ${Math.round(input.mileageIncreasePercent)}% with repeated soreness/intensity signs.`
-        : level === "moderate"
-          ? `Manageable risk: load rose ${Math.round(input.mileageIncreasePercent)}% with mild recovery signals.`
-          : "Training load and recovery signals are currently stable.",
-    recommendation:
-      level === "high"
-        ? "Reduce intensity for the next 2 runs and prioritize recovery work."
+        ? `Mileage is up ${Math.round(input.mileageIncreasePercent)}% — reduce intensity for the next 2 runs.`
         : level === "moderate"
           ? "Keep easy days easy and monitor soreness before hard sessions."
-          : "Maintain progression and keep one full recovery day this week.",
+          : null,
   };
 }
 

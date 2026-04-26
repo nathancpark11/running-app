@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Pause, Play } from "lucide-react";
 import { formatDuration } from "@/lib/format";
+import { playStretchTimerTone, primeStretchTimerAudio } from "@/lib/stretchTimerAudio";
 import type { StretchRoutine } from "@/lib/types";
 
 const STRETCH_TIMER_SESSION_KEY = "runtrack.stretchTimer.session";
 const PREFERRED_ROUTINE_NAME = "Post Run Stretch";
 const ROUTINE_NAME_PLACEHOLDER = "Post Run Mobility";
-let sharedAudioContext: AudioContext | null = null;
 
 type StretchTimerProps = {
   routines: StretchRoutine[];
@@ -72,47 +72,12 @@ function renderStretchName(name: string, round: number = 1) {
   );
 }
 
-function playTone(frequency: number, durationSeconds: number) {
-  try {
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) {
-      return;
-    }
-
-    if (!sharedAudioContext || sharedAudioContext.state === "closed") {
-      sharedAudioContext = new AudioContextClass();
-    }
-    const context = sharedAudioContext;
-    if (context.state === "suspended") {
-      void context.resume();
-    }
-
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-
-    oscillator.type = "sine";
-    oscillator.frequency.value = frequency;
-
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + durationSeconds);
-
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-
-    oscillator.start();
-    oscillator.stop(context.currentTime + durationSeconds + 0.02);
-  } catch {
-    // Ignore audio playback failures (browser/device restrictions).
-  }
-}
-
 function playCountdownBeep() {
-  playTone(880, 0.22);
+  playStretchTimerTone(880, 0.22);
 }
 
 function playCountdownEndTone() {
-  playTone(620, 0.35);
+  playStretchTimerTone(620, 0.35);
 }
 
 function stretchLabel(name: string, round: number): string {
@@ -355,6 +320,7 @@ export function StretchTimer({ routines, compact = false }: StretchTimerProps) {
   const upNext = steps[nextIndexForUpNext];
 
   function toggleRunning() {
+    void primeStretchTimerAudio();
     clearCompletionTimer();
     setRunning((prev) => {
       if (prev) {

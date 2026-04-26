@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ProgressCard } from "@/components/ProgressCard";
 import { RunCard } from "@/components/RunCard";
@@ -13,7 +13,7 @@ const DAILY_CHECKIN_STORAGE_KEY = "runtrack:daily-checkin";
 
 type LegFeeling = "good" | "tight" | "pain";
 type EnergyLevel = "high" | "medium" | "low";
-type DailyCheckIn = { legs: LegFeeling; energy: EnergyLevel; date: string };
+type DailyCheckIn = { legs: LegFeeling; energy: EnergyLevel; sleepScore: number; date: string };
 type WeeklyInsightTone = "POSITIVE" | "RISK" | "TREND" | "ACTION";
 
 const WEEKLY_INSIGHT_STYLES: Record<WeeklyInsightTone, string> = {
@@ -73,6 +73,7 @@ function hasClearMainSetTarget(notes: string, targetPace?: string): boolean {
 
 export default function DashboardPage() {
   const { runs, goals, trainingRecommendations, trainingPlanName } = useRunTrack();
+  const prevRunsLengthRef = useRef<number | null>(null);
   const [weeklyInsights, setWeeklyInsights] = useState<WeeklyInsightsPayload | null>(null);
   const [injuryRisk, setInjuryRisk] = useState<InjuryRiskPayload | null>(null);
   const [todayFocus, setTodayFocus] = useState<TodayFocusPayload | null>(null);
@@ -89,8 +90,16 @@ export default function DashboardPage() {
     try {
       const stored = window.localStorage.getItem(DAILY_CHECKIN_STORAGE_KEY);
       if (!stored) return null;
-      const parsed = JSON.parse(stored) as DailyCheckIn;
-      return parsed.date === new Date().toISOString().slice(0, 10) ? parsed : null;
+      const parsed = JSON.parse(stored) as Partial<DailyCheckIn>;
+      if (parsed.date !== new Date().toISOString().slice(0, 10)) return null;
+      if (typeof parsed.sleepScore !== "number") return null;
+      if (!parsed.legs || !parsed.energy) return null;
+      return {
+        legs: parsed.legs,
+        energy: parsed.energy,
+        sleepScore: parsed.sleepScore,
+        date: parsed.date,
+      };
     } catch {
       return null;
     }
@@ -99,6 +108,7 @@ export default function DashboardPage() {
   const [checkInSuccess, setCheckInSuccess] = useState(false);
   const [pendingLegs, setPendingLegs] = useState<LegFeeling | null>(null);
   const [pendingEnergy, setPendingEnergy] = useState<EnergyLevel | null>(null);
+  const [pendingSleepScore, setPendingSleepScore] = useState(75);
 
   const sortedRuns = [...runs].sort((a, b) => +new Date(b.date) - +new Date(a.date));
   const recentRuns = sortedRuns.slice(0, 1);
@@ -145,6 +155,8 @@ export default function DashboardPage() {
       if (checkIn.legs === "pain") checkInPressure += 2;
       else if (checkIn.legs === "tight") checkInPressure += 1;
       if (checkIn.energy === "low") checkInPressure += 1;
+      if (checkIn.sleepScore < 60) checkInPressure += 2;
+      else if (checkIn.sleepScore < 75) checkInPressure += 1;
     }
 
     const localLevel: "low" | "moderate" | "high" =
@@ -218,9 +230,24 @@ export default function DashboardPage() {
       })
     : "";
 
+  const sleepScorePreview = pendingSleepScore;
+  const sleepScoreBand =
+    sleepScorePreview >= 85
+      ? "Excellent"
+      : sleepScorePreview >= 75
+        ? "Good"
+        : sleepScorePreview >= 65
+          ? "Fair"
+          : "Poor";
+
   function submitCheckIn() {
     if (!pendingLegs || !pendingEnergy) return;
-    const entry: DailyCheckIn = { legs: pendingLegs, energy: pendingEnergy, date: todayKey };
+    const entry: DailyCheckIn = {
+      legs: pendingLegs,
+      energy: pendingEnergy,
+      sleepScore: pendingSleepScore,
+      date: todayKey,
+    };
     setCheckIn(entry);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(DAILY_CHECKIN_STORAGE_KEY, JSON.stringify(entry));
@@ -231,17 +258,28 @@ export default function DashboardPage() {
       setCheckInSuccess(false);
       setPendingLegs(null);
       setPendingEnergy(null);
+      setPendingSleepScore(75);
     }, 1200);
   }
 
   useEffect(() => {
     let canceled = false;
-    const shouldForceWeeklyRefresh =
+    const now = new Date();
+    const isSunday = now.getDay() === 0;
+    const isPastFivePm = now.getHours() >= 17;
+
+    const runWasJustAdded = prevRunsLengthRef.current !== null && runs.length > prevRunsLengthRef.current;
+    prevRunsLengthRef.current = runs.length;
+
+    const manualRefreshFlagged =
       typeof window !== "undefined" && window.localStorage.getItem(WEEKLY_INSIGHTS_REFRESH_KEY) === "1";
 
-    if (shouldForceWeeklyRefresh && typeof window !== "undefined") {
+    if (manualRefreshFlagged && typeof window !== "undefined") {
       window.localStorage.removeItem(WEEKLY_INSIGHTS_REFRESH_KEY);
     }
+
+    // Force refresh on Sundays when: a run was just uploaded, or it's 5pm+
+    const shouldForceWeeklyRefresh = manualRefreshFlagged || (isSunday && (isPastFivePm || runWasJustAdded));
 
     const weeklyInsightsUrl = shouldForceWeeklyRefresh
       ? "/api/ai/weekly-insights?refresh=1"
@@ -364,7 +402,7 @@ export default function DashboardPage() {
             onClick={() => setShowCheckInModal(true)}
             className="rounded-xl border border-slate-200/70 bg-white/60 px-5 py-2.5 text-sm font-medium text-slate-700 shadow-none backdrop-blur-sm transition hover:bg-white dark:border-slate-800/80 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-900"
           >
-            Complete daily check-in
+            Complete Daily Check-In
           </button>
         </div>
       ) : null}
@@ -426,16 +464,32 @@ export default function DashboardPage() {
       <article className="rounded-xl border border-slate-200/70 bg-white/60 p-2.5 shadow-none backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-900/70">
         {(() => {
             const level = injuryRisk?.riskLevel ?? localInjuryMetrics.localLevel;
-            const mileagePct = injuryRisk?.metrics?.mileageIncreasePercent ?? localInjuryMetrics.mileageChangePercent;
-            const hardRatio = injuryRisk?.metrics?.hardRunRatio ?? localInjuryMetrics.hardRunRatio;
+            // Always use locally computed values — AI cache can be stale after new runs are added
+            const mileagePct = localInjuryMetrics.mileageChangePercent;
+            const prevMilesAvailable = (injuryRisk?.metrics?.previousWeekMiles ?? 0) > 0
+              || localInjuryMetrics.mileageChangePercent !== 0
+              || (() => {
+                const now = new Date();
+                const diff = now.getDay() === 0 ? 6 : now.getDay() - 1;
+                const weekStart = new Date(now);
+                weekStart.setDate(now.getDate() - diff);
+                weekStart.setHours(0, 0, 0, 0);
+                const prevStart = new Date(weekStart);
+                prevStart.setDate(weekStart.getDate() - 7);
+                return runs.some((r) => { const d = new Date(r.date); return d >= prevStart && d < weekStart; });
+              })();
+            const hardRatio = localInjuryMetrics.hardRunRatio;
             const sorenessCt = injuryRisk?.metrics?.sorenessMentionCount ?? null;
 
-            const mileageLabel = mileagePct === 0 ? "0%" : `${mileagePct > 0 ? "+" : ""}${mileagePct.toFixed(0)}%`;
+            const mileageLabel = !prevMilesAvailable
+              ? `${weeklyMiles.toFixed(1)} mi`
+              : mileagePct === 0 ? "0%" : `${mileagePct > 0 ? "+" : ""}${mileagePct.toFixed(0)}%`;
             const intensityLabel = `${Math.round(hardRatio * 100)}% hard`;
             const recoveryLabel = sorenessCt === null ? "—" : sorenessCt === 0 ? "None" : `${sorenessCt} flag${sorenessCt !== 1 ? "s" : ""}`;
 
-            const mileageColor =
-              Math.abs(mileagePct) >= 25
+            const mileageColor = !prevMilesAvailable
+              ? "text-slate-600 dark:text-slate-300"
+              : Math.abs(mileagePct) >= 25
                 ? "text-rose-600 dark:text-rose-300"
                 : Math.abs(mileagePct) >= 12
                   ? "text-amber-600 dark:text-amber-300"
@@ -499,30 +553,38 @@ export default function DashboardPage() {
                   </div>
                 </dl>
 
-                {injuryRisk ? (
-                  <>
-                    <p className="mt-2 text-xs text-slate-700 dark:text-slate-200">{injuryRisk.explanation}</p>
-                    <p className="mt-1 text-xs text-blue-700 dark:text-blue-200">{injuryRisk.recommendation}</p>
-                  </>
+                {injuryRisk?.suggestion ? (
+                  <p className="mt-2 text-xs text-slate-700 dark:text-slate-200">{injuryRisk.suggestion}</p>
                 ) : null}
                 {checkIn ? (
-                  <p className={`mt-2 text-xs font-medium ${
-                    checkIn.legs === "pain"
-                      ? "text-rose-600 dark:text-rose-300"
-                      : checkIn.legs === "tight" || checkIn.energy === "low"
-                        ? "text-amber-600 dark:text-amber-300"
-                        : "text-emerald-600 dark:text-emerald-300"
-                  }`}>
-                    {checkIn.legs === "pain"
-                      ? "\u26a0\ufe0f Leg pain reported \u2014 consider rest or easy effort today."
-                      : checkIn.legs === "tight" && checkIn.energy === "low"
-                        ? "Tight legs + low energy \u2014 prioritize recovery today."
-                        : checkIn.legs === "tight"
-                          ? "Legs feeling tight \u2014 warm up thoroughly before any intensity."
-                          : checkIn.energy === "low"
-                            ? "Low energy today \u2014 keep effort controlled."
-                            : "Feeling good \u2014 cleared for today\u2019s plan."}
-                  </p>
+                  (() => {
+                    const lowSleep = checkIn.sleepScore < 70;
+                    const riskyCombo = checkIn.legs === "tight" && (checkIn.energy === "low" || lowSleep);
+
+                    return (
+                      <p className={`mt-2 text-xs font-medium ${
+                        checkIn.legs === "pain"
+                          ? "text-rose-600 dark:text-rose-300"
+                          : checkIn.legs === "tight" || checkIn.energy === "low" || lowSleep
+                            ? "text-amber-600 dark:text-amber-300"
+                            : "text-emerald-600 dark:text-emerald-300"
+                      }`}>
+                        {checkIn.legs === "pain"
+                          ? "\u26a0\ufe0f Leg pain reported \u2014 consider rest or easy effort today."
+                          : riskyCombo
+                            ? "Tight legs + low recovery signs \u2014 prioritize recovery today."
+                            : checkIn.energy === "low" && lowSleep
+                              ? "Low sleep + low energy \u2014 keep effort controlled today."
+                              : checkIn.legs === "tight"
+                                ? "Legs feeling tight \u2014 warm up thoroughly before any intensity."
+                                : lowSleep
+                                  ? "Sleep score is low \u2014 consider reducing workout intensity."
+                                  : checkIn.energy === "low"
+                                    ? "Low energy today \u2014 keep effort controlled."
+                                    : "Feeling good \u2014 cleared for today\u2019s plan."}
+                      </p>
+                    );
+                  })()
                 ) : null}
               </>
             );
@@ -559,6 +621,9 @@ export default function DashboardPage() {
               {" "}&middot;{" "}
               Energy{" "}
               <span className="font-semibold capitalize">{checkIn.energy}</span>
+              {" "}&middot;{" "}
+              Sleep{" "}
+              <span className="font-semibold">{checkIn.sleepScore}</span>
             </p>
           ) : null}
           <ul className="mt-2 space-y-2 text-xs text-slate-700 dark:text-slate-200">
@@ -667,6 +732,30 @@ export default function DashboardPage() {
                           {opt}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Sleep score</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {`${pendingSleepScore} • ${sleepScoreBand}`}
+                      </p>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={sleepScorePreview}
+                      onChange={(event) => setPendingSleepScore(Number(event.target.value))}
+                      className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600 dark:bg-slate-700"
+                      aria-label="Sleep score"
+                    />
+                    <div className="mt-1 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                      <span>0</span>
+                      <span>50</span>
+                      <span>100</span>
                     </div>
                   </div>
                 </div>

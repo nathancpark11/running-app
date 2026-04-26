@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { playStretchTimerTone } from "@/lib/stretchTimerAudio";
 
 const STRETCH_TIMER_SESSION_KEY = "runtrack.stretchTimer.session";
-let sharedAudioContext: AudioContext | null = null;
 
 type StretchTimerSession = {
   running: boolean;
@@ -40,47 +40,12 @@ function persistSession(session: StretchTimerSession) {
   window.localStorage.setItem(STRETCH_TIMER_SESSION_KEY, JSON.stringify(session));
 }
 
-function playTone(frequency: number, durationSeconds: number) {
-  try {
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) {
-      return;
-    }
-
-    if (!sharedAudioContext || sharedAudioContext.state === "closed") {
-      sharedAudioContext = new AudioContextClass();
-    }
-    const context = sharedAudioContext;
-    if (context.state === "suspended") {
-      void context.resume();
-    }
-
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-
-    oscillator.type = "sine";
-    oscillator.frequency.value = frequency;
-
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + durationSeconds);
-
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-
-    oscillator.start();
-    oscillator.stop(context.currentTime + durationSeconds + 0.02);
-  } catch {
-    // Ignore audio playback failures (browser/device restrictions).
-  }
-}
-
 function playCountdownBeep() {
-  playTone(880, 0.22);
+  playStretchTimerTone(880, 0.22);
 }
 
 function playCountdownEndTone() {
-  playTone(620, 0.35);
+  playStretchTimerTone(620, 0.35);
 }
 
 function tickSession(session: StretchTimerSession): StretchTimerSession {

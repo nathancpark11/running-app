@@ -100,18 +100,16 @@ export async function GET(request: Request) {
     });
 
     const ai = process.env.OPENAI_API_KEY
-      ? await requestAiJson<Pick<InjuryRiskPayload, "riskLevel" | "explanation" | "recommendation">>(
+      ? await requestAiJson<Pick<InjuryRiskPayload, "riskLevel" | "suggestion">>(
           INJURY_RISK_PROMPT,
           aiInput,
-          220
+          120
         ).catch(() => null)
       : null;
 
     const payload: InjuryRiskPayload = {
       riskLevel: ai?.riskLevel === "low" || ai?.riskLevel === "moderate" || ai?.riskLevel === "high" ? ai.riskLevel : fallback.riskLevel,
-      explanation: typeof ai?.explanation === "string" && ai.explanation.trim() ? ai.explanation.trim() : fallback.explanation,
-      recommendation:
-        typeof ai?.recommendation === "string" && ai.recommendation.trim() ? ai.recommendation.trim() : fallback.recommendation,
+      suggestion: typeof ai?.suggestion === "string" && ai.suggestion.trim() ? ai.suggestion.trim() : fallback.suggestion ?? null,
       metrics: {
         currentWeekMiles,
         previousWeekMiles,

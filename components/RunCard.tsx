@@ -45,6 +45,11 @@ export function RunCard({
 }: RunCardProps) {
   const badgeClass = runTypeBadgeClasses[run.runType];
   const cardBorderClass = runTypeCardClasses[run.runType];
+  const garminMetrics = [
+    typeof run.heartRateBpm === "number" && run.heartRateBpm > 0 ? `HR ${run.heartRateBpm} bpm` : null,
+    typeof run.caloriesBurned === "number" && run.caloriesBurned > 0 ? `${run.caloriesBurned} cal` : null,
+    run.primaryBenefitEvaluation?.trim() ? run.primaryBenefitEvaluation.trim() : null,
+  ].filter((item): item is string => Boolean(item));
 
   if (compact && expandable) {
     return (
@@ -102,6 +107,19 @@ export function RunCard({
             <p className="mt-2 text-xs font-medium text-blue-600 dark:text-blue-300">
               Intervals: {run.intervalCount} with {run.restTimeMinutes} min rest
             </p>
+          ) : null}
+
+          {garminMetrics.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {garminMetrics.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
           ) : null}
 
           {run.notes.trim().length > 0 ? (
@@ -211,6 +229,19 @@ export function RunCard({
           </p>
         </div>
       </div>
+
+      {garminMetrics.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {garminMetrics.map((item) => (
+            <span
+              key={item}
+              className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200"
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mt-3.5 md:mt-4">
         <div>

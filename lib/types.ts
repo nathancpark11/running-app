@@ -107,13 +107,17 @@ export type RunLog = {
   paceMinPerMile: number;
   runType: RunType;
   notes: string;
+  heartRateBpm?: number;
+  caloriesBurned?: number;
   shoe?: string;
+  fuelingStrategy?: string;
   energyLevel: number;
   soreness: number;
   treadmillPace?: string;
   treadmillPaceDurationMinutes?: number;
   intervalCount?: number;
   restTimeMinutes?: number;
+  primaryBenefitEvaluation?: string;
   bodyCheck?: RunHealthCheck;
   aiSummary?: string;
   aiSignals?: string[];
@@ -137,8 +141,7 @@ export type WeeklyInsightsPayload = {
 
 export type InjuryRiskPayload = {
   riskLevel: "low" | "moderate" | "high";
-  explanation: string;
-  recommendation: string;
+  suggestion: string | null;
   metrics: {
     currentWeekMiles: number;
     previousWeekMiles: number;

@@ -409,12 +409,6 @@ export default function CalendarPage() {
                 </div>
 
                 {dayRecommendations.length > 0 ? (
-                  <p className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">
-                    {dayRecommendations.length} planned workout{dayRecommendations.length > 1 ? "s" : ""}
-                  </p>
-                ) : null}
-
-                {dayRecommendations.length > 0 ? (
                   <section>
                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
                       Planned workout

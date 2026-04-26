@@ -261,27 +261,37 @@ export function BodyCheckSection({ value, onChange, showHeader = true }: BodyChe
         </div>
       ) : null}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Body map</p>
-          <button
-            type="button"
-            onClick={() => setMapView((current) => (current === "front" ? "back" : "front"))}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
-          >
-            Show {mapView === "front" ? "Back" : "Front"}
-          </button>
-        </div>
+      <details className="group rounded-2xl border border-slate-700 bg-slate-900">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-100">Log Pain</p>
+            <p className="text-xs text-slate-400">Tap a body region to add or edit pain details.</p>
+          </div>
+          <span className="text-xs text-slate-500 transition group-open:rotate-180">▾</span>
+        </summary>
 
-        <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-          <p className="mb-3 text-center text-sm font-semibold text-slate-400">{mapView.toUpperCase()}</p>
-          <BodyMap
-            view={mapView}
-            selectedRegions={selectedRegionList}
-            onRegionClick={openRegion}
-          />
+        <div className="space-y-3 border-t border-slate-700 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Body map</p>
+            <button
+              type="button"
+              onClick={() => setMapView((current) => (current === "front" ? "back" : "front"))}
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
+            >
+              Show {mapView === "front" ? "Back" : "Front"}
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-700 bg-slate-950 p-4">
+            <p className="mb-3 text-center text-sm font-semibold text-slate-400">{mapView.toUpperCase()}</p>
+            <BodyMap
+              view={mapView}
+              selectedRegions={selectedRegionList}
+              onRegionClick={openRegion}
+            />
+          </div>
         </div>
-      </div>
+      </details>
 
       <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Selected areas</p>

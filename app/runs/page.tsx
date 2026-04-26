@@ -18,13 +18,17 @@ type EditRunValues = {
   durationSeconds: number;
   runType: RunType;
   notes: string;
+  heartRateBpm: number;
+  caloriesBurned: number;
   shoe: string;
+  fuelingStrategy: string;
   energyLevel: number;
   soreness: number;
   treadmillPace: string;
   treadmillPaceDurationMinutes: number;
   intervalCount: number;
   restTimeMinutes: number;
+  primaryBenefitEvaluation: string;
   bodyCheck: RunHealthCheck;
 };
 
@@ -80,13 +84,17 @@ function toEditValues(run: RunLog): EditRunValues {
     durationSeconds: totalSeconds % 60,
     runType: run.runType,
     notes: run.notes,
+    heartRateBpm: run.heartRateBpm ?? 0,
+    caloriesBurned: run.caloriesBurned ?? 0,
     shoe: run.shoe ?? "ASICS Gel Nimbus",
+    fuelingStrategy: run.fuelingStrategy ?? "",
     energyLevel: run.energyLevel,
     soreness: run.soreness,
     treadmillPace: run.treadmillPace ?? defaultPaceForSurface(run.surface),
     treadmillPaceDurationMinutes: run.treadmillPaceDurationMinutes ?? 20,
     intervalCount: run.intervalCount ?? 4,
     restTimeMinutes: run.restTimeMinutes ?? 2,
+    primaryBenefitEvaluation: run.primaryBenefitEvaluation ?? run.notes,
     bodyCheck: run.bodyCheck ?? { entries: [] },
   };
 }
@@ -100,6 +108,12 @@ function RunsPageContent() {
   const [regeneratingRunId, setRegeneratingRunId] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState<RunSortOption>("date-desc");
   const [runTypeFilter, setRunTypeFilter] = useState<RunType | "all">("all");
+  const currentWeekLabel = useMemo(() => {
+    const now = new Date();
+    const weekStart = startOfWeek(now.toISOString());
+    return `Week of ${formatWeekLabel(weekStart)}`;
+  }, []);
+  const [openWeeks, setOpenWeeks] = useState<Set<string>>(() => new Set([currentWeekLabel]));
   const shouldOpenAddRun = searchParams.get("add") === "1";
 
   useEffect(() => {
@@ -251,7 +265,7 @@ function RunsPageContent() {
         key={shouldOpenAddRun ? "add-run-open" : "add-run-closed"}
         initialOpen={shouldOpenAddRun}
         onSubmit={(values) => {
-          const { time, durationHours, durationSeconds, ...payload } = values;
+          const { date, time, durationHours, durationSeconds, ...payload } = values;
           const {
             treadmillPace,
             treadmillPaceDurationMinutes,
@@ -263,6 +277,10 @@ function RunsPageContent() {
           const paceMinPerMile = values.distanceMiles > 0 ? durationMinutes / values.distanceMiles : 0;
           const [hours, minutes] = time.split(":").map(Number);
           const runDate = new Date();
+          const [year, month, day] = date.split("-").map(Number);
+          if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+            runDate.setFullYear(year, Math.max(0, month - 1), day);
+          }
           runDate.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0);
           const isTempoOrIntervals = payload.runType === "Tempo" || payload.runType === "Intervals";
           const defaultWorkoutPace = payload.surface === "Outdoor" ? "7:30/mi" : "8.0";
@@ -328,28 +346,64 @@ function RunsPageContent() {
             No runs saved yet.
           </article>
         ) : (
-          groupedRuns.map((group) => (
-            <div key={group.weekLabel} className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
-                {group.weekLabel}
-              </p>
-              <div className="space-y-2">
-                {group.runs.map((run) => (
-                  <RunCard
-                    key={run.id}
-                    run={run}
-                    compact
-                    expandable
-                    onEdit={startEdit}
-                    onRegenerateSummary={(nextRun) => {
-                      void regenerateSummary(nextRun);
-                    }}
-                    isRegeneratingSummary={regeneratingRunId === run.id}
-                  />
-                ))}
+          groupedRuns.map((group) => {
+            const isOpen = openWeeks.has(group.weekLabel);
+            return (
+              <div key={group.weekLabel} className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenWeeks((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(group.weekLabel)) {
+                        next.delete(group.weekLabel);
+                      } else {
+                        next.add(group.weekLabel);
+                      }
+                      return next;
+                    })
+                  }
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                    {group.weekLabel}
+                  </span>
+                  <svg
+                    className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200 dark:text-slate-500 ${isOpen ? "rotate-180" : ""}`}
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
+                    {group.runs.length} {group.runs.length === 1 ? "run" : "runs"}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="space-y-2">
+                    {group.runs.map((run) => (
+                      <RunCard
+                        key={run.id}
+                        run={run}
+                        compact
+                        expandable
+                        onEdit={startEdit}
+                        onRegenerateSummary={(nextRun) => {
+                          void regenerateSummary(nextRun);
+                        }}
+                        isRegeneratingSummary={regeneratingRunId === run.id}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </section>
 
@@ -430,7 +484,7 @@ function RunsPageContent() {
               </label>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-5">
               <label className="space-y-1 text-sm">
                 <span className="text-slate-600 dark:text-slate-300">Date</span>
                 <input
@@ -493,13 +547,42 @@ function RunsPageContent() {
                   />
                 </div>
               </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-slate-600 dark:text-slate-300">Heart Rate (bpm)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={editValues.heartRateBpm === 0 ? "" : editValues.heartRateBpm}
+                  onChange={(e) => updateEdit("heartRateBpm", Math.max(0, Number(e.target.value)))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
+                  placeholder="Avg HR"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-slate-600 dark:text-slate-300">Calories</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={editValues.caloriesBurned === 0 ? "" : editValues.caloriesBurned}
+                  onChange={(e) => updateEdit("caloriesBurned", Math.max(0, Number(e.target.value)))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
+                  placeholder="Calories"
+                />
+              </label>
             </div>
 
             <label className="space-y-1 text-sm">
               <span className="text-slate-600 dark:text-slate-300">Notes</span>
               <textarea
                 value={editValues.notes}
-                onChange={(e) => updateEdit("notes", e.target.value)}
+                onChange={(e) => {
+                  updateEdit("notes", e.target.value);
+                  updateEdit("primaryBenefitEvaluation", e.target.value);
+                }}
                 className="min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
               />
             </label>
