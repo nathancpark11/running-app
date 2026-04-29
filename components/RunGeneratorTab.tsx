@@ -165,9 +165,12 @@ function SkeletonCard() {
   );
 }
 
-export function RunGeneratorTab() {
+type RunGeneratorTabProps = {
+  preselectedWorkoutId: string | null;
+};
+
+export function RunGeneratorTab({ preselectedWorkoutId }: RunGeneratorTabProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const {
     runs,
     trainingRecommendations,
@@ -184,7 +187,6 @@ export function RunGeneratorTab() {
     () => [...trainingRecommendations].sort((left, right) => +new Date(left.date) - +new Date(right.date)),
     [trainingRecommendations]
   );
-  const preselectedWorkoutId = searchParams.get("workoutId");
 
   const selectedWorkout = useMemo(() => {
     if (sortedRecommendations.length === 0) {
