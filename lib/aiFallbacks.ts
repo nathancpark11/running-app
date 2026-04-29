@@ -97,14 +97,16 @@ export function fallbackWeeklyInsights(input: {
 
 export function fallbackInjuryRisk(input: {
   mileageIncreasePercent: number;
+  projectedMileageIncreasePercent?: number;
   sorenessMentionCount: number;
   paceDeclineSeconds: number;
   hardRunRatio: number;
 }) {
+  const projectedIncrease = input.projectedMileageIncreasePercent ?? input.mileageIncreasePercent;
   const level: InjuryRiskLevel =
-    input.mileageIncreasePercent >= 30 || input.sorenessMentionCount >= 3 || input.hardRunRatio >= 0.55
+    input.mileageIncreasePercent >= 30 || projectedIncrease >= 30 || input.sorenessMentionCount >= 3 || input.hardRunRatio >= 0.55
       ? "high"
-      : input.mileageIncreasePercent >= 20 || input.sorenessMentionCount >= 1 || input.paceDeclineSeconds >= 15
+      : input.mileageIncreasePercent >= 20 || projectedIncrease >= 20 || input.sorenessMentionCount >= 1 || input.paceDeclineSeconds >= 15
         ? "moderate"
         : "low";
 
@@ -112,7 +114,7 @@ export function fallbackInjuryRisk(input: {
     riskLevel: level,
     suggestion:
       level === "high"
-        ? `Mileage is up ${Math.round(input.mileageIncreasePercent)}% — reduce intensity for the next 2 runs.`
+        ? `Mileage is trending up ${Math.round(Math.max(input.mileageIncreasePercent, projectedIncrease))}% — reduce intensity for the next 2 runs.`
         : level === "moderate"
           ? "Keep easy days easy and monitor soreness before hard sessions."
           : null,
@@ -150,26 +152,76 @@ export function fallbackTodayFocus(input: {
   };
 }
 
-export function fallbackStretchRecommendation(input: {
-  sorenessMentions: string[];
-  latestRunType?: string;
-  upcomingRunType?: string;
+export function fallbackPlanCheckAnalysis(input: {
+  plannedType: string;
+  plannedDistanceMiles: number | null;
+  plannedDurationMinutes: number | null;
+  targetPaceMin: number | null;
+  targetPaceMax: number | null;
+  workoutGoal: string | null;
+  actualDistanceMiles: number;
+  actualDurationMinutes: number;
+  avgPaceMinPerMile: number;
+  effectivePaceMinPerMile?: number | null;
+  effectivePaceMaxPerMile?: number | null;
+  rpe: number | null;
 }) {
-  const combined = input.sorenessMentions.join(" ").toLowerCase();
-  let focus = "calves, hip flexors, and glutes";
+  const distanceDelta =
+    typeof input.plannedDistanceMiles === "number"
+      ? Number((input.actualDistanceMiles - input.plannedDistanceMiles).toFixed(2))
+      : null;
 
-  if (combined.includes("hamstring") || combined.includes("posterior")) {
-    focus = "hamstrings, glutes, and calves";
-  } else if (combined.includes("quad") || combined.includes("knee")) {
-    focus = "quads, hip flexors, and calves";
-  } else if (combined.includes("achilles") || combined.includes("calf")) {
-    focus = "calves, achilles, and ankles";
+  const comparedPaceMin = typeof input.effectivePaceMinPerMile === "number" ? input.effectivePaceMinPerMile : input.avgPaceMinPerMile;
+  const comparedPaceMax = typeof input.effectivePaceMaxPerMile === "number" ? input.effectivePaceMaxPerMile : comparedPaceMin;
+  const comparedPaceMid = Number(((comparedPaceMin + comparedPaceMax) / 2).toFixed(3));
+  const paceSource =
+    typeof input.effectivePaceMinPerMile === "number"
+      ? "main-set pace from notes"
+      : "overall average pace";
+
+  const inPaceRange =
+    typeof input.targetPaceMin === "number"
+    && typeof input.targetPaceMax === "number"
+    && comparedPaceMid >= input.targetPaceMin
+    && comparedPaceMid <= input.targetPaceMax;
+
+  const distanceMet = distanceDelta === null || distanceDelta >= -0.2;
+  const overDistance = distanceDelta !== null && distanceDelta >= 0.3;
+  const typeLabel = input.plannedType.toLowerCase();
+
+  let status: "completed_as_planned" | "mostly_completed" | "overperformed" | "underperformed" | "missed" | "needs_review";
+  if (!distanceMet || !inPaceRange) {
+    status = "underperformed";
+  } else if (overDistance && inPaceRange) {
+    status = "overperformed";
+  } else if (distanceMet && inPaceRange) {
+    status = "completed_as_planned";
+  } else {
+    status = "mostly_completed";
   }
 
-  return {
-    focus: `Focus on ${focus}.`,
-    reason: `Based on recent ${input.latestRunType ?? "runs"}${input.upcomingRunType ? ` and upcoming ${input.upcomingRunType}` : ""}.`,
-  };
+  const scoreBase =
+    status === "completed_as_planned" ? 92
+    : status === "overperformed" ? 88
+    : status === "mostly_completed" ? 78
+    : status === "underperformed" ? 62
+    : 50;
+  const effortPenalty = input.rpe !== null && input.rpe >= 9 ? 8 : input.rpe !== null && input.rpe >= 8 ? 4 : 0;
+  const score = Math.max(0, Math.min(100, scoreBase - effortPenalty));
+
+  const summaryRaw =
+    status === "completed_as_planned"
+      ? `${typeLabel} run matched planned distance and ${paceSource === "main-set pace from notes" ? "main-set" : "pace"} target, delivering the intended stimulus.`
+      : status === "overperformed"
+      ? `${typeLabel} run exceeded planned distance while holding target effort, increasing load beyond plan.`
+      : status === "mostly_completed"
+      ? `${typeLabel} run generally matched plan, but pacing consistency was mixed relative to the intended target.`
+      : `${typeLabel} run missed key plan targets for distance or pace, reducing the intended workout effect.`;
+
+  const summaryWords = summaryRaw.trim().split(/\s+/).slice(0, 35);
+  const summary = summaryWords.join(" ");
+
+  return { status, summary, score };
 }
 
 export function fallbackParseRun(description: string) {

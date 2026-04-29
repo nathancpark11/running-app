@@ -14,7 +14,13 @@ type WeeklyInsightsAiResponse = {
 };
 
 function toWeekWindow(now: Date) {
-  const currentStart = startOfWeek(now);
+  const thisWeekStart = startOfWeek(now);
+
+  // Analyze only fully completed weeks:
+  // - current window: last completed week
+  // - previous window: the week before last
+  const currentStart = new Date(thisWeekStart);
+  currentStart.setDate(thisWeekStart.getDate() - 7);
   const currentEnd = new Date(currentStart);
   currentEnd.setDate(currentStart.getDate() + 6);
   currentEnd.setHours(23, 59, 59, 999);

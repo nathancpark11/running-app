@@ -11,6 +11,7 @@ import { StretchTimerMiniModal } from "@/components/StretchTimerMiniModal";
 function titleForPath(pathname: string): string {
   if (pathname === "/") return "Dashboard";
   if (pathname === "/runs") return "Runs";
+  if (pathname === "/run-generator") return "Run Generator";
   if (pathname === "/training-plan") return "Training Plan";
   if (pathname === "/calendar") return "Calendar";
   if (pathname === "/stretch-timer") return "Stretch Timer";

@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { DEFAULT_GOALS, DEFAULT_ROUTINES } from "@/lib/defaults";
-import type { Goals, Preferences, RunLog, StretchRoutine, TrainingRecommendation, TrainingPlanMetadata } from "@/lib/types";
+import type { Goals, PlanCheckResult, Preferences, RunLog, StretchRoutine, TrainingRecommendation, TrainingPlanMetadata } from "@/lib/types";
 import { inferTrainingPlanMetadata } from "@/lib/aiData";
 import { fallbackRunTitle } from "@/lib/aiFallbacks";
 import { TrainingPlanMetadataModal } from "./TrainingPlanMetadataModal";
@@ -31,7 +31,9 @@ type RunTrackContextValue = {
   addRun: (run: Omit<RunLog, "id" | "createdAt">) => void;
   updateRun: (id: string, run: Omit<RunLog, "id" | "createdAt">) => void;
   updateRunAiSummary: (id: string, next: RunAiSummaryUpdate) => void;
+  updateRunPlanCheck: (id: string, next: PlanCheckResult) => void;
   replaceTrainingRecommendations: (planName: string, recommendations: Omit<TrainingRecommendation, "id">[]) => Promise<void>;
+  updateTrainingRecommendationAiCoachNote: (id: string, aiCoachNote: string) => void;
   clearTrainingPlan: () => void;
   deleteRun: (id: string) => void;
   updateGoals: (next: Goals) => void;
@@ -112,6 +114,22 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
 
         const incomingRoutines = data.routines ?? DEFAULT_ROUTINES;
         let routinesWereMigrated = false;
+        let recommendationsWereMigrated = false;
+        const resolvedRecommendations = (data.trainingRecommendations ?? []).map((recommendation) => {
+          const legacyRecommendation = recommendation as TrainingRecommendation & { aiWorkoutRecommendation?: string };
+          if (recommendation.aiCoachNote?.trim() || !legacyRecommendation.aiWorkoutRecommendation?.trim()) {
+            return recommendation;
+          }
+
+          recommendationsWereMigrated = true;
+          return {
+            ...recommendation,
+            aiCoachNote: legacyRecommendation.aiWorkoutRecommendation.trim().startsWith("AI Coach:")
+              ? legacyRecommendation.aiWorkoutRecommendation.trim()
+              : `AI Coach: ${legacyRecommendation.aiWorkoutRecommendation.trim()}`,
+          };
+        });
+
         const resolvedRoutines = incomingRoutines.map((routine) => {
           if (routine.id !== "routine-default") {
             return routine;
@@ -136,7 +154,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
         });
 
         setRuns(data.runs ?? []);
-        setTrainingRecommendations(data.trainingRecommendations ?? []);
+  setTrainingRecommendations(resolvedRecommendations);
         setTrainingPlanName(data.trainingPlanName ?? null);
         setGoals(data.goals ?? DEFAULT_GOALS);
         setPreferences(data.preferences ?? DEFAULT_PREFERENCES);
@@ -147,6 +165,14 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
             method: "PUT",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ routines: resolvedRoutines }),
+          }).catch(() => undefined);
+        }
+
+        if (recommendationsWereMigrated) {
+          void fetch("/api/user-data", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ trainingRecommendations: resolvedRecommendations }),
           }).catch(() => undefined);
         }
       } finally {
@@ -228,6 +254,36 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const generatePlanCheckForRun = useCallback(async (runId: string) => {
+    const response = await fetch(`/api/ai/plan-check?runId=${encodeURIComponent(runId)}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Failed to generate plan check.");
+    }
+
+    const data = (await response.json()) as {
+      payload?: {
+        status?: PlanCheckResult["status"];
+        summary?: string;
+        score?: number;
+      } | null;
+    };
+
+    const payload = data.payload;
+    if (!payload) {
+      return null;
+    }
+
+    if (typeof payload.status !== "string" || typeof payload.summary !== "string" || typeof payload.score !== "number") {
+      throw new Error("Plan check response missing required fields.");
+    }
+
+    return {
+      status: payload.status,
+      summary: payload.summary.trim(),
+      score: Math.max(0, Math.min(100, Math.round(payload.score))),
+    } satisfies PlanCheckResult;
+  }, []);
+
   const addRun = useCallback((run: Omit<RunLog, "id" | "createdAt">) => {
     const next: RunLog = {
       ...run,
@@ -243,6 +299,22 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
           if (typeof window !== "undefined") {
             window.localStorage.setItem(WEEKLY_INSIGHTS_REFRESH_KEY, "1");
           }
+
+          void generatePlanCheckForRun(next.id)
+            .then((result) => {
+              if (!result) {
+                return;
+              }
+
+              setRuns((currentRuns) => {
+                const nextRuns = currentRuns.map((item) =>
+                  item.id === next.id ? { ...item, planCheck: result } : item
+                );
+                void persistUserData({ runs: nextRuns });
+                return nextRuns;
+              });
+            })
+            .catch(() => undefined);
         })
         .catch(() => undefined);
       return updated;
@@ -266,7 +338,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
         });
       })
       .catch(() => undefined);
-  }, [generateRunSummary, persistUserData]);
+  }, [generatePlanCheckForRun, generateRunSummary, persistUserData]);
 
   const deleteRun = useCallback((id: string) => {
     setRuns((prev) => {
@@ -286,6 +358,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
               createdAt: item.createdAt,
               aiSummary: item.aiSummary,
               aiSignals: item.aiSignals,
+              planCheck: item.planCheck,
               structuredNotes: item.structuredNotes,
             }
           : item
@@ -304,6 +377,21 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
               title: next.title?.trim() || item.title,
               aiSummary: next.summary,
               aiSignals: next.signals ?? [],
+            }
+          : item
+      );
+      void persistUserData({ runs: updated });
+      return updated;
+    });
+  }, [persistUserData]);
+
+  const updateRunPlanCheck = useCallback((id: string, next: PlanCheckResult) => {
+    setRuns((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              planCheck: next,
             }
           : item
       );
@@ -377,6 +465,21 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
     void persistUserData({ trainingRecommendations: [], trainingPlanName: null });
   }, [persistUserData]);
 
+  const updateTrainingRecommendationAiCoachNote = useCallback((id: string, aiCoachNote: string) => {
+    setTrainingRecommendations((prev) => {
+      const updated = prev.map((recommendation) =>
+        recommendation.id === id
+          ? {
+              ...recommendation,
+              aiCoachNote,
+            }
+          : recommendation
+      );
+      void persistUserData({ trainingRecommendations: updated });
+      return updated;
+    });
+  }, [persistUserData]);
+
   const updateGoals = useCallback((next: Goals) => {
     setGoals(next);
     void persistUserData({ goals: next });
@@ -431,7 +534,9 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       addRun,
       updateRun,
       updateRunAiSummary,
+      updateRunPlanCheck,
       replaceTrainingRecommendations,
+      updateTrainingRecommendationAiCoachNote,
       clearTrainingPlan,
       deleteRun,
       updateGoals,
@@ -450,7 +555,9 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       addRun,
       updateRun,
       updateRunAiSummary,
+      updateRunPlanCheck,
       replaceTrainingRecommendations,
+      updateTrainingRecommendationAiCoachNote,
       clearTrainingPlan,
       deleteRun,
       updateGoals,

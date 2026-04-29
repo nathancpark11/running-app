@@ -97,6 +97,37 @@ export type ParsedRunDetails = {
   notes: string;
 };
 
+export type PlanCheckResult = {
+  status: "completed_as_planned" | "mostly_completed" | "overperformed" | "underperformed" | "missed" | "needs_review";
+  summary: string;
+  score: number;
+};
+
+export type RefinedMainSetStatus = "progressed" | "repeat_controlled" | "reduced" | "caution";
+
+export type RefinedMainSetPayload = {
+  mainSetTitle: string;
+  status: RefinedMainSetStatus;
+  reasoningSummary: string;
+  recommendedMainSet: {
+    structure: string;
+    speedMph: string;
+    recovery: string;
+    totalMainSetWorkTime: string;
+    effort: string;
+    executionCue: string;
+  };
+  comparisonToPrevious: {
+    previousBest: string;
+    progression: string;
+    riskLevel: "low" | "moderate" | "high";
+  };
+  fallbackOption: {
+    structure: string;
+    whenToUse: string;
+  };
+};
+
 export type RunLog = {
   id: string;
   date: string;
@@ -121,6 +152,7 @@ export type RunLog = {
   bodyCheck?: RunHealthCheck;
   aiSummary?: string;
   aiSignals?: string[];
+  planCheck?: PlanCheckResult;
   structuredNotes?: ParsedRunDetails;
   createdAt: string;
 };
@@ -146,6 +178,8 @@ export type InjuryRiskPayload = {
     currentWeekMiles: number;
     previousWeekMiles: number;
     mileageIncreasePercent: number;
+    projectedWeekMiles?: number;
+    projectedMileageIncreasePercent?: number;
     sorenessMentionCount: number;
     hardRunRatio: number;
     paceDeclineSeconds: number;
@@ -165,17 +199,12 @@ export type TodayFocusPayload = {
   plannedWorkoutSuggestion?: string | null;
 };
 
-export type StretchRecommendationPayload = {
-  focus: string;
-  reason: string;
-  basedOnRunId: string | null;
-};
-
 export type TrainingRecommendation = {
   id: string;
   date: string;
   title: string;
   notes: string;
+  aiCoachNote?: string;
   runType: RunType;
   surface: RunSurface;
   distanceMiles?: number;

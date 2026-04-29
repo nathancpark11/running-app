@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Calendar, ClipboardList, Flag, LayoutDashboard, Settings, Timer, Trophy } from "lucide-react";
+import { Activity, Calendar, ClipboardList, Flag, LayoutDashboard, Settings, Sparkles, Timer, Trophy } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/stretch-timer", label: "Stretch Timer", icon: Timer },
   { href: "/runs", label: "Runs", icon: Activity },
   { href: "/calendar", label: "Calendar", icon: Calendar },
+  { href: "/run-generator", label: "Run Generator", icon: Sparkles },
   { href: "/stats", label: "Stats", icon: Trophy },
   { href: "/goals", label: "Goals", icon: Flag },
   { href: "/training-plan", label: "Training Plan", icon: ClipboardList },

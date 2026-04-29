@@ -1,13 +1,59 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRunTrack } from "@/components/RunTrackProvider";
 import { formatDuration, formatPace } from "@/lib/format";
+import type { PlanCheckResult, RunLog, TrainingRecommendation } from "@/lib/types";
 
 type WorkoutSection = {
   label: "Warm Up" | "Main Set" | "Cool Down";
   content: string;
 };
+
+type DayPlanCheckTone = "success" | "partial" | "missed" | "unplanned";
+
+type DayPlanCheck = {
+  tone: DayPlanCheckTone;
+  status: string;
+  summary: string;
+  suggestion: string;
+};
+
+type PlanCheckStatus = "completed_as_planned" | "mostly_completed" | "overperformed" | "underperformed" | "missed" | "needs_review";
+
+type PlanCheckCard = {
+  status: PlanCheckStatus;
+  summary: string;
+  score: number;
+};
+
+function resolveStoredPlanCheck(dayRuns: RunLog[], dayRecommendations: TrainingRecommendation[]): PlanCheckCard | null {
+  if (dayRuns.length === 0) {
+    return null;
+  }
+
+  const preferredRun =
+    dayRecommendations.length > 0
+      ? dayRuns.find((run) => run.runType === dayRecommendations[0].runType)
+      : dayRuns[0];
+
+  const runWithPlanCheck =
+    preferredRun?.planCheck
+      ? preferredRun
+      : dayRuns.find((run) => Boolean(run.planCheck));
+
+  const planCheck = runWithPlanCheck?.planCheck;
+  if (!planCheck) {
+    return null;
+  }
+
+  return {
+    status: planCheck.status,
+    summary: planCheck.summary,
+    score: planCheck.score,
+  };
+}
 
 function normalizeWorkoutSentence(value: string): string {
   const trimmed = value.trim();
@@ -97,14 +143,145 @@ function keyForRunDate(value: string): string {
   return keyForDate(parsed);
 }
 
+function resolveAiCoachNoteForRecommendation(recommendation: { aiCoachNote?: string }): string | null {
+  const coachNote = recommendation.aiCoachNote?.trim();
+  if (coachNote) {
+    return coachNote;
+  }
+
+  return null;
+}
+
+function isQualityWorkout(runType: TrainingRecommendation["runType"]): boolean {
+  return runType === "Tempo" || runType === "Intervals" || runType === "Hills" || runType === "Race";
+}
+
+function getNextRunSuggestion(runType: TrainingRecommendation["runType"], tone: DayPlanCheckTone): string {
+  if (tone === "success") {
+    switch (runType) {
+      case "Long":
+        return "Next long run: add 0.5-1.0 mi only if recovery feels good.";
+      case "Tempo":
+      case "Intervals":
+      case "Hills":
+        return "Next session: keep quality high and add one short repeat if effort stayed controlled.";
+      case "Easy":
+      case "Recovery":
+      case "Endurance":
+        return "Next run: keep effort easy and add 5-10 minutes if legs feel fresh.";
+      case "Race":
+        return "Next race-focused run: keep volume steady and prioritize race-pace control.";
+      case "Hike":
+        return "Next hike: keep cadence steady and add gradual elevation only if soreness stays low.";
+      default:
+        return "Next run: keep progression small and consistent.";
+    }
+  }
+
+  if (tone === "missed") {
+    return `Next ${runType.toLowerCase()} run: prioritize completion over pace and start slightly conservative.`;
+  }
+
+  return `Next ${runType.toLowerCase()} run: match the planned type first, then build back to full volume.`;
+}
+
+function findBestMatchingRun(recommendation: TrainingRecommendation, runs: RunLog[]): RunLog | null {
+  if (runs.length === 0) {
+    return null;
+  }
+
+  const sameTypeRuns = runs.filter((run) => run.runType === recommendation.runType);
+  if (sameTypeRuns.length > 0) {
+    return sameTypeRuns.reduce((best, current) =>
+      current.distanceMiles > best.distanceMiles ? current : best
+    );
+  }
+
+  return runs.reduce((best, current) =>
+    current.distanceMiles > best.distanceMiles ? current : best
+  );
+}
+
+function buildDayPlanCheck(dayRuns: RunLog[], dayRecommendations: TrainingRecommendation[]): DayPlanCheck | null {
+  if (dayRuns.length === 0 && dayRecommendations.length === 0) {
+    return null;
+  }
+
+  if (dayRecommendations.length === 0) {
+    const primaryRun = dayRuns[0];
+    return {
+      tone: "unplanned",
+      status: "Completed (unplanned)",
+      summary: `Logged a ${primaryRun.runType.toLowerCase()} run with no planned workout for the day.`,
+      suggestion: getNextRunSuggestion(primaryRun.runType, "unplanned"),
+    };
+  }
+
+  const primaryRecommendation = dayRecommendations[0];
+
+  if (dayRuns.length === 0) {
+    return {
+      tone: "missed",
+      status: "Not completed",
+      summary: `Planned ${primaryRecommendation.runType.toLowerCase()} workout was not logged.`,
+      suggestion: getNextRunSuggestion(primaryRecommendation.runType, "missed"),
+    };
+  }
+
+  const matchedRun = findBestMatchingRun(primaryRecommendation, dayRuns);
+  if (!matchedRun) {
+    return {
+      tone: "partial",
+      status: "Partially completed",
+      summary: `Run logged, but it did not match the planned ${primaryRecommendation.runType.toLowerCase()} workout.`,
+      suggestion: getNextRunSuggestion(primaryRecommendation.runType, "partial"),
+    };
+  }
+
+  const typeMatched = matchedRun.runType === primaryRecommendation.runType;
+  const meetsDistance =
+    typeof primaryRecommendation.distanceMiles !== "number"
+    || primaryRecommendation.distanceMiles <= 0
+    || matchedRun.distanceMiles >= primaryRecommendation.distanceMiles * 0.85;
+  const meetsDuration =
+    typeof primaryRecommendation.durationMinutes !== "number"
+    || primaryRecommendation.durationMinutes <= 0
+    || matchedRun.durationMinutes >= primaryRecommendation.durationMinutes * 0.85;
+
+  const wasSuccessful = typeMatched && meetsDistance && meetsDuration;
+
+  if (wasSuccessful) {
+    return {
+      tone: "success",
+      status: "Completed as planned",
+      summary: `Planned ${primaryRecommendation.runType.toLowerCase()} workout was completed with similar volume.`,
+      suggestion: getNextRunSuggestion(primaryRecommendation.runType, "success"),
+    };
+  }
+
+  const mismatchReason = !typeMatched
+    ? `logged ${matchedRun.runType.toLowerCase()} instead`
+    : !meetsDistance && !meetsDuration
+    ? "lower distance and duration"
+    : !meetsDistance
+    ? "lower distance"
+    : "shorter duration";
+
+  return {
+    tone: "partial",
+    status: "Partially completed",
+    summary: `Planned ${primaryRecommendation.runType.toLowerCase()} workout was modified (${mismatchReason}).`,
+    suggestion: getNextRunSuggestion(primaryRecommendation.runType, "partial"),
+  };
+}
+
 export default function CalendarPage() {
-  const { runs, trainingRecommendations } = useRunTrack();
+  const { runs, trainingRecommendations, updateRunPlanCheck } = useRunTrack();
   const todayKey = keyForDate(new Date());
-  const [view, setView] = useState<"week" | "month">("week");
+  const [view, setView] = useState<"week" | "month">("month");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [tempoAtPaceByDate, setTempoAtPaceByDate] = useState<Record<string, string>>({});
-  const [plannedWorkoutSuggestionByDate, setPlannedWorkoutSuggestionByDate] = useState<Record<string, string>>({});
   const fetchedTempoDateKeysRef = useRef<Set<string>>(new Set());
   const [displayMonth, setDisplayMonth] = useState(() => {
     const today = new Date();
@@ -219,13 +396,9 @@ export default function CalendarPage() {
                 response.ok && typeof data.payload?.tempoAtPaceSuggestion === "string" && data.payload.tempoAtPaceSuggestion.trim()
                   ? data.payload.tempoAtPaceSuggestion.trim()
                   : null,
-              workoutSuggestion:
-                response.ok && typeof data.payload?.plannedWorkoutSuggestion === "string" && data.payload.plannedWorkoutSuggestion.trim()
-                  ? data.payload.plannedWorkoutSuggestion.trim()
-                  : null,
             };
           } catch {
-            return { dateKey, suggestion: null, workoutSuggestion: null };
+            return { dateKey, suggestion: null };
           }
         })
       );
@@ -244,15 +417,6 @@ export default function CalendarPage() {
         return next;
       });
 
-      setPlannedWorkoutSuggestionByDate((prev) => {
-        const next = { ...prev };
-        results.forEach((result) => {
-          if (result.workoutSuggestion) {
-            next[result.dateKey] = result.workoutSuggestion;
-          }
-        });
-        return next;
-      });
     }
 
     void loadTempoSuggestions();
@@ -345,6 +509,7 @@ export default function CalendarPage() {
                 const key = keyForDate(day);
                 const dayRuns = runsByDate.get(key) ?? [];
                 const dayRecommendations = recommendationsByDate.get(key) ?? [];
+                const planCheck = buildDayPlanCheck(dayRuns, dayRecommendations);
                 const isToday = key === todayKey;
                 const hasCompletedRun = dayRuns.length > 0;
                 return (
@@ -371,6 +536,19 @@ export default function CalendarPage() {
                         {dayRecommendations[0].title}
                       </p>
                     ) : null}
+                    {planCheck && dayRuns.length > 0 ? (
+                      <p
+                        className={`mt-1 truncate text-[11px] ${
+                          planCheck.tone === "success"
+                            ? "text-emerald-700 dark:text-emerald-200"
+                            : planCheck.tone === "missed"
+                            ? "text-rose-700 dark:text-rose-200"
+                            : "text-amber-700 dark:text-amber-200"
+                        }`}
+                      >
+                        {planCheck.status}
+                      </p>
+                    ) : null}
                   </button>
                 );
               })}
@@ -385,6 +563,9 @@ export default function CalendarPage() {
             const key = keyForDate(day);
             const dayRuns = runsByDate.get(key) ?? [];
             const dayRecommendations = recommendationsByDate.get(key) ?? [];
+            const planCheck = buildDayPlanCheck(dayRuns, dayRecommendations);
+            const apiPlanCheck = resolveStoredPlanCheck(dayRuns, dayRecommendations);
+            const isNotCompletedDay = dayRecommendations.length > 0 && dayRuns.length === 0;
             const isToday = key === todayKey;
             const hasCompletedRun = dayRuns.length > 0;
 
@@ -399,69 +580,115 @@ export default function CalendarPage() {
                     : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                 }`}
               >
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    {day.toLocaleDateString(undefined, { weekday: "short" })}
-                  </p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                  </p>
+                <div className="grid grid-cols-2 items-start gap-2">
+                  <div className="min-w-0 space-y-2 md:space-y-2.5">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        {day.toLocaleDateString(undefined, { weekday: "short" })}
+                      </p>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </p>
+                    </div>
+
+                    {dayRecommendations.length > 0 ? (
+                      <section>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                          Planned workout
+                        </p>
+                        <ul className="mt-1.5 space-y-1">
+                          {dayRecommendations.map((recommendation) => (
+                            <li key={recommendation.id} className="text-xs text-slate-700 dark:text-slate-200">
+                              <div className="flex items-start justify-between gap-2">
+                                <span>
+                                  {recommendation.runType}
+                                  {recommendation.distanceMiles ? ` • ${recommendation.distanceMiles} mi` : ""}
+                                  {recommendation.durationMinutes
+                                    ? ` • ${formatDuration(
+                                        recommendation.durationMinutes,
+                                        recommendation.runType === "Long" || recommendation.runType === "Race"
+                                      )}`
+                                    : ""}
+                                </span>
+                                {isQualityWorkout(recommendation.runType) ? (
+                                  <Link
+                                    href={`/run-generator?workoutId=${encodeURIComponent(recommendation.id)}`}
+                                    className="inline-block rounded-md border border-blue-300 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/50 dark:text-blue-200 dark:hover:bg-blue-500/10"
+                                  >
+                                    Open Run Generator
+                                  </Link>
+                                ) : null}
+                              </div>
+                              {recommendation.runType === "Tempo" && tempoAtPaceByDate[recommendation.date.slice(0, 10)] && !hasClearMainSetTarget(recommendation.notes, recommendation.targetPace) ? (
+                                <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-200">
+                                  At pace: {tempoAtPaceByDate[recommendation.date.slice(0, 10)]}
+                                </p>
+                              ) : null}
+                              {resolveAiCoachNoteForRecommendation(recommendation) ? (
+                                <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-200">
+                                  AI Coach: {resolveAiCoachNoteForRecommendation(recommendation)?.replace(/^AI Coach:\s*/i, "")}
+                                </p>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+
+                    <section>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                        Logged runs
+                      </p>
+                      {dayRuns.length > 0 ? (
+                        <ul className="mt-1.5 space-y-1">
+                          {dayRuns.map((run) => (
+                            <li
+                              key={run.id}
+                              className="text-xs text-slate-700 dark:text-slate-200"
+                            >
+                              {run.title} • {run.distanceMiles} mi • {formatDuration(
+                                run.durationMinutes,
+                                run.runType === "Long" || run.runType === "Race"
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No runs logged for this day.</p>
+                      )}
+                    </section>
+                  </div>
+
+                  {planCheck ? (
+                    <section className="rounded-lg border border-violet-200/80 bg-violet-50/50 p-2 dark:border-violet-500/30 dark:bg-violet-500/10">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                        Plan check
+                      </p>
+                      <p
+                        className={`mt-1 text-xs font-medium ${
+                          planCheck.tone === "success"
+                            ? "text-emerald-700 dark:text-emerald-200"
+                            : planCheck.tone === "missed"
+                            ? "text-rose-700 dark:text-rose-200"
+                            : "text-amber-700 dark:text-amber-200"
+                        }`}
+                      >
+                        {planCheck.status}
+                      </p>
+                      {isNotCompletedDay ? null : apiPlanCheck ? (
+                        <>
+                          <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">{apiPlanCheck.summary}</p>
+                          <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">Score: {apiPlanCheck.score}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">{planCheck.summary}</p>
+                          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{planCheck.suggestion}</p>
+                        </>
+                      )}
+                    </section>
+                  ) : null}
                 </div>
-
-                {dayRecommendations.length > 0 ? (
-                  <section>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
-                      Planned workout
-                    </p>
-                    <ul className="mt-1.5 space-y-1">
-                      {dayRecommendations.map((recommendation) => (
-                        <li key={recommendation.id} className="text-xs text-slate-700 dark:text-slate-200">
-                          {recommendation.runType}
-                          {recommendation.distanceMiles ? ` • ${recommendation.distanceMiles} mi` : ""}
-                          {recommendation.durationMinutes
-                            ? ` • ${formatDuration(
-                                recommendation.durationMinutes,
-                                recommendation.runType === "Long" || recommendation.runType === "Race"
-                              )}`
-                            : ""}
-                          {recommendation.runType === "Tempo" && tempoAtPaceByDate[recommendation.date.slice(0, 10)] && !hasClearMainSetTarget(recommendation.notes, recommendation.targetPace) ? (
-                            <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-200">
-                              At pace: {tempoAtPaceByDate[recommendation.date.slice(0, 10)]}
-                            </p>
-                          ) : null}
-                          {(recommendation.runType === "Tempo" || recommendation.runType === "Intervals") && plannedWorkoutSuggestionByDate[recommendation.date.slice(0, 10)] ? (
-                            <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-200">
-                              Suggested workout: {plannedWorkoutSuggestionByDate[recommendation.date.slice(0, 10)]}
-                            </p>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-
-                <section>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
-                    Logged runs
-                  </p>
-                  {dayRuns.length > 0 ? (
-                    <ul className="mt-1.5 space-y-1">
-                      {dayRuns.map((run) => (
-                        <li
-                          key={run.id}
-                          className="text-xs text-slate-700 dark:text-slate-200"
-                        >
-                          {run.title} • {run.distanceMiles} mi • {formatDuration(
-                            run.durationMinutes,
-                            run.runType === "Long" || run.runType === "Race"
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No runs logged for this day.</p>
-                  )}
-                </section>
               </article>
             );
           })}
@@ -472,6 +699,9 @@ export default function CalendarPage() {
         const selectedKey = keyForDate(selectedDate);
         const modalRuns = runsByDate.get(selectedKey) ?? [];
         const modalRecommendations = recommendationsByDate.get(selectedKey) ?? [];
+        const modalPlanCheck = buildDayPlanCheck(modalRuns, modalRecommendations);
+        const modalApiPlanCheck = resolveStoredPlanCheck(modalRuns, modalRecommendations);
+        const modalIsNotCompletedDay = modalRecommendations.length > 0 && modalRuns.length === 0;
         return (
           <div
             className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 p-4"
@@ -518,7 +748,17 @@ export default function CalendarPage() {
                             key={recommendation.id}
                             className="rounded-xl border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-500/30 dark:bg-blue-500/10"
                           >
-                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recommendation.runType}</p>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recommendation.runType}</p>
+                              {isQualityWorkout(recommendation.runType) ? (
+                                <Link
+                                  href={`/run-generator?workoutId=${encodeURIComponent(recommendation.id)}`}
+                                  className="inline-block rounded-md border border-blue-300 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/50 dark:text-blue-200 dark:hover:bg-blue-500/10"
+                                >
+                                  Open Run Generator
+                                </Link>
+                              ) : null}
+                            </div>
                             {recommendation.distanceMiles ? (
                               <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Distance: {recommendation.distanceMiles} mi</p>
                             ) : null}
@@ -536,9 +776,9 @@ export default function CalendarPage() {
                                 At pace: {tempoAtPaceByDate[recommendation.date.slice(0, 10)]}
                               </p>
                             ) : null}
-                            {(recommendation.runType === "Tempo" || recommendation.runType === "Intervals") && plannedWorkoutSuggestionByDate[recommendation.date.slice(0, 10)] ? (
+                            {resolveAiCoachNoteForRecommendation(recommendation) ? (
                               <p className="mt-1 text-xs text-blue-700 dark:text-blue-200">
-                                Suggested workout: {plannedWorkoutSuggestionByDate[recommendation.date.slice(0, 10)]}
+                                AI Coach: {resolveAiCoachNoteForRecommendation(recommendation)?.replace(/^AI Coach:\s*/i, "")}
                               </p>
                             ) : null}
                             {noteSections.length > 0 ? (
@@ -589,6 +829,34 @@ export default function CalendarPage() {
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No runs logged for this day.</p>
                   )}
                 </section>
+
+                {modalPlanCheck ? (
+                  <section>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">Plan check</p>
+                    <p
+                      className={`mt-2 text-sm font-medium ${
+                        modalPlanCheck.tone === "success"
+                          ? "text-emerald-700 dark:text-emerald-200"
+                          : modalPlanCheck.tone === "missed"
+                          ? "text-rose-700 dark:text-rose-200"
+                          : "text-amber-700 dark:text-amber-200"
+                      }`}
+                    >
+                      {modalPlanCheck.status}
+                    </p>
+                    {modalIsNotCompletedDay ? null : modalApiPlanCheck ? (
+                      <>
+                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{modalApiPlanCheck.summary}</p>
+                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Score: {modalApiPlanCheck.score}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{modalPlanCheck.summary}</p>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{modalPlanCheck.suggestion}</p>
+                      </>
+                    )}
+                  </section>
+                ) : null}
               </div>
             </div>
           </div>

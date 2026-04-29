@@ -6,14 +6,20 @@ import { ProgressCard } from "@/components/ProgressCard";
 import { RunCard } from "@/components/RunCard";
 import { useRunTrack } from "@/components/RunTrackProvider";
 import { isDateInCurrentWeek } from "@/lib/format";
-import type { InjuryRiskPayload, StretchRecommendationPayload, TodayFocusPayload, WeeklyInsightsPayload } from "@/lib/types";
+import type { InjuryRiskPayload, TodayFocusPayload, WeeklyInsightsPayload } from "@/lib/types";
 
 const WEEKLY_INSIGHTS_REFRESH_KEY = "runtrack:weekly-insights-refresh";
 const DAILY_CHECKIN_STORAGE_KEY = "runtrack:daily-checkin";
 
 type LegFeeling = "good" | "tight" | "pain";
 type EnergyLevel = "high" | "medium" | "low";
-type DailyCheckIn = { legs: LegFeeling; energy: EnergyLevel; sleepScore: number; date: string };
+type DailyCheckIn = { legs: LegFeeling; energy: EnergyLevel; sleepScore?: number; date: string };
+type CheckInPeriod = "morning" | "evening";
+type DailyCheckInByPeriod = {
+  date: string;
+  morning?: DailyCheckIn;
+  evening?: DailyCheckIn;
+};
 type WeeklyInsightTone = "POSITIVE" | "RISK" | "TREND" | "ACTION";
 
 const WEEKLY_INSIGHT_STYLES: Record<WeeklyInsightTone, string> = {
@@ -33,10 +39,6 @@ function parseWeeklyInsight(insight: string): { tone: WeeklyInsightTone | null; 
     tone: match[1] as WeeklyInsightTone,
     text: match[2] || insight,
   };
-}
-
-function toTitleCase(value: string): string {
-  return value.replace(/\b([a-z])/gi, (letter) => letter.toUpperCase());
 }
 
 function extractMainSetContent(notes: string): string {
@@ -71,35 +73,93 @@ function hasClearMainSetTarget(notes: string, targetPace?: string): boolean {
   return hasDuration && hasPace;
 }
 
+function sanitizePlannedWorkoutNotes(notes: string): string {
+  return notes
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => !/^\s*(workout\s*type|total\s*mileage|total\s*time)\s*[:\-]/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function getLocalDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCheckInPeriod(date = new Date()): CheckInPeriod {
+  return date.getHours() < 12 ? "morning" : "evening";
+}
+
 export default function DashboardPage() {
   const { runs, goals, trainingRecommendations, trainingPlanName } = useRunTrack();
   const prevRunsLengthRef = useRef<number | null>(null);
   const [weeklyInsights, setWeeklyInsights] = useState<WeeklyInsightsPayload | null>(null);
   const [injuryRisk, setInjuryRisk] = useState<InjuryRiskPayload | null>(null);
   const [todayFocus, setTodayFocus] = useState<TodayFocusPayload | null>(null);
-  const [stretchRecommendation, setStretchRecommendation] = useState<StretchRecommendationPayload | null>(null);
   const [aiCardError, setAiCardError] = useState("");
-  const [stretchRecommendationError, setStretchRecommendationError] = useState("");
   const [selectedTrendDay, setSelectedTrendDay] = useState<{
     date: Date;
     label: string;
     runs: typeof runs;
   } | null>(null);
-  const [checkIn, setCheckIn] = useState<DailyCheckIn | null>(() => {
+  const [checkInByPeriod, setCheckInByPeriod] = useState<DailyCheckInByPeriod | null>(() => {
     if (typeof window === "undefined") return null;
     try {
       const stored = window.localStorage.getItem(DAILY_CHECKIN_STORAGE_KEY);
       if (!stored) return null;
-      const parsed = JSON.parse(stored) as Partial<DailyCheckIn>;
-      if (parsed.date !== new Date().toISOString().slice(0, 10)) return null;
-      if (typeof parsed.sleepScore !== "number") return null;
-      if (!parsed.legs || !parsed.energy) return null;
-      return {
-        legs: parsed.legs,
-        energy: parsed.energy,
-        sleepScore: parsed.sleepScore,
-        date: parsed.date,
-      };
+      const parsed = JSON.parse(stored) as Partial<DailyCheckInByPeriod & DailyCheckIn>;
+      const todayLocalKey = getLocalDateKey();
+
+      // Backward compatibility for previous single-entry shape.
+      if (
+        parsed
+        && (typeof parsed.sleepScore === "number" || parsed.sleepScore === undefined)
+        && (parsed.legs === "good" || parsed.legs === "tight" || parsed.legs === "pain")
+        && (parsed.energy === "high" || parsed.energy === "medium" || parsed.energy === "low")
+      ) {
+        if (parsed.date !== todayLocalKey) return null;
+        return {
+          date: todayLocalKey,
+          morning: {
+            legs: parsed.legs,
+            energy: parsed.energy,
+            sleepScore: parsed.sleepScore,
+            date: todayLocalKey,
+          },
+        };
+      }
+
+      if (!parsed || parsed.date !== todayLocalKey) return null;
+
+      const morning = parsed.morning
+        && (typeof parsed.morning.sleepScore === "number" || parsed.morning.sleepScore === undefined)
+        && (parsed.morning.legs === "good" || parsed.morning.legs === "tight" || parsed.morning.legs === "pain")
+        && (parsed.morning.energy === "high" || parsed.morning.energy === "medium" || parsed.morning.energy === "low")
+        ? {
+            legs: parsed.morning.legs,
+            energy: parsed.morning.energy,
+            sleepScore: parsed.morning.sleepScore,
+            date: parsed.morning.date ?? todayLocalKey,
+          }
+        : undefined;
+
+      const evening = parsed.evening
+        && (typeof parsed.evening.sleepScore === "number" || parsed.evening.sleepScore === undefined)
+        && (parsed.evening.legs === "good" || parsed.evening.legs === "tight" || parsed.evening.legs === "pain")
+        && (parsed.evening.energy === "high" || parsed.evening.energy === "medium" || parsed.evening.energy === "low")
+        ? {
+            legs: parsed.evening.legs,
+            energy: parsed.evening.energy,
+            sleepScore: parsed.evening.sleepScore,
+            date: parsed.evening.date ?? todayLocalKey,
+          }
+        : undefined;
+
+      return { date: todayLocalKey, morning, evening };
     } catch {
       return null;
     }
@@ -109,6 +169,12 @@ export default function DashboardPage() {
   const [pendingLegs, setPendingLegs] = useState<LegFeeling | null>(null);
   const [pendingEnergy, setPendingEnergy] = useState<EnergyLevel | null>(null);
   const [pendingSleepScore, setPendingSleepScore] = useState(75);
+  const checkInDateKey = getLocalDateKey();
+  const todaysCheckInByPeriod = checkInByPeriod?.date === checkInDateKey ? checkInByPeriod : null;
+  const currentCheckInPeriod = getCheckInPeriod();
+  const currentCheckInPeriodLabel = currentCheckInPeriod === "morning" ? "Morning" : "Evening";
+  const checkIn = todaysCheckInByPeriod?.[currentCheckInPeriod] ?? todaysCheckInByPeriod?.evening ?? todaysCheckInByPeriod?.morning ?? null;
+  const hasLoggedCurrentPeriodCheckIn = Boolean(todaysCheckInByPeriod?.[currentCheckInPeriod]);
 
   const sortedRuns = [...runs].sort((a, b) => +new Date(b.date) - +new Date(a.date));
   const recentRuns = sortedRuns.slice(0, 1);
@@ -121,22 +187,50 @@ export default function DashboardPage() {
     const now = new Date();
     const day = now.getDay();
     const diffToMonday = day === 0 ? 6 : day - 1;
-    const currentWeekStart = new Date(now);
-    currentWeekStart.setDate(now.getDate() - diffToMonday);
-    currentWeekStart.setHours(0, 0, 0, 0);
+    const thisWeekStart = new Date(now);
+    thisWeekStart.setDate(now.getDate() - diffToMonday);
+    thisWeekStart.setHours(0, 0, 0, 0);
+    const thisWeekEnd = new Date(thisWeekStart);
+    thisWeekEnd.setDate(thisWeekStart.getDate() + 7);
+
+    const currentWeekStart = new Date(thisWeekStart);
+    currentWeekStart.setDate(thisWeekStart.getDate() - 7);
+    const currentWeekEnd = new Date(currentWeekStart);
+    currentWeekEnd.setDate(currentWeekStart.getDate() + 7);
+
     const prevWeekStart = new Date(currentWeekStart);
     prevWeekStart.setDate(currentWeekStart.getDate() - 7);
+    const prevWeekEnd = new Date(currentWeekStart);
 
-    const currentRuns = runs.filter((run) => new Date(run.date) >= currentWeekStart);
+    const currentRuns = runs.filter((run) => {
+      const d = new Date(run.date);
+      return d >= currentWeekStart && d < currentWeekEnd;
+    });
     const prevRuns = runs.filter((run) => {
       const d = new Date(run.date);
-      return d >= prevWeekStart && d < currentWeekStart;
+      return d >= prevWeekStart && d < prevWeekEnd;
     });
+
+    const thisWeekActualRuns = runs.filter((run) => {
+      const d = new Date(run.date);
+      return d >= thisWeekStart && d < thisWeekEnd;
+    });
+    const thisWeekActualMiles = thisWeekActualRuns.reduce((sum, run) => sum + run.distanceMiles, 0);
+    const thisWeekPlannedMiles = trainingRecommendations
+      .filter((recommendation) => {
+        const d = new Date(recommendation.date);
+        return d >= thisWeekStart && d < thisWeekEnd;
+      })
+      .reduce((sum, recommendation) => sum + (recommendation.distanceMiles ?? 0), 0);
+    const projectedWeekMiles = Math.max(thisWeekActualMiles, thisWeekPlannedMiles);
 
     const currMiles = currentRuns.reduce((sum, r) => sum + r.distanceMiles, 0);
     const prevMiles = prevRuns.reduce((sum, r) => sum + r.distanceMiles, 0);
     const mileageChangePercent = prevMiles > 0
       ? Number((((currMiles - prevMiles) / prevMiles) * 100).toFixed(1))
+      : 0;
+    const projectedMileageIncreasePercent = currMiles > 0
+      ? Number((((projectedWeekMiles - currMiles) / currMiles) * 100).toFixed(1))
       : 0;
 
     const hardTypes = ["Tempo", "Intervals", "Hills", "Race"];
@@ -144,9 +238,9 @@ export default function DashboardPage() {
     const hardRunRatio = currentRuns.length > 0 ? Number((hardCount / currentRuns.length).toFixed(2)) : 0;
 
     const rawLocalLevel: "low" | "moderate" | "high" =
-      mileageChangePercent >= 30 || hardRunRatio >= 0.55
+      mileageChangePercent >= 30 || projectedMileageIncreasePercent >= 30 || hardRunRatio >= 0.55
         ? "high"
-        : mileageChangePercent >= 20 || hardRunRatio >= 0.4
+        : mileageChangePercent >= 20 || projectedMileageIncreasePercent >= 20 || hardRunRatio >= 0.4
           ? "moderate"
           : "low";
 
@@ -155,8 +249,10 @@ export default function DashboardPage() {
       if (checkIn.legs === "pain") checkInPressure += 2;
       else if (checkIn.legs === "tight") checkInPressure += 1;
       if (checkIn.energy === "low") checkInPressure += 1;
-      if (checkIn.sleepScore < 60) checkInPressure += 2;
-      else if (checkIn.sleepScore < 75) checkInPressure += 1;
+      if (typeof checkIn.sleepScore === "number") {
+        if (checkIn.sleepScore < 60) checkInPressure += 2;
+        else if (checkIn.sleepScore < 75) checkInPressure += 1;
+      }
     }
 
     const localLevel: "low" | "moderate" | "high" =
@@ -166,8 +262,8 @@ export default function DashboardPage() {
           ? "moderate"
           : "low";
 
-    return { mileageChangePercent, hardRunRatio, localLevel, checkInPressure };
-  }, [runs, checkIn]);
+    return { mileageChangePercent, projectedMileageIncreasePercent, projectedWeekMiles, hardRunRatio, localLevel, checkInPressure };
+  }, [runs, trainingRecommendations, checkIn]);
 
   const weeklyMileageSeries = useMemo(() => {
     const now = new Date();
@@ -216,6 +312,8 @@ export default function DashboardPage() {
   const todaysRecommendation = trainingRecommendations.find(
     (recommendation) => recommendation.date.slice(0, 10) === todayKey
   );
+  const todaysAiCoachNote = todaysRecommendation?.aiCoachNote?.trim() || null;
+  const todaysWorkoutNotes = sanitizePlannedWorkoutNotes(todaysRecommendation?.notes ?? "");
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const nextRecommendation = todaysRecommendation
@@ -242,15 +340,23 @@ export default function DashboardPage() {
 
   function submitCheckIn() {
     if (!pendingLegs || !pendingEnergy) return;
+    const sleepScore = currentCheckInPeriod === "morning"
+      ? pendingSleepScore
+      : todaysCheckInByPeriod?.morning?.sleepScore;
     const entry: DailyCheckIn = {
       legs: pendingLegs,
       energy: pendingEnergy,
-      sleepScore: pendingSleepScore,
-      date: todayKey,
+      ...(typeof sleepScore === "number" ? { sleepScore } : {}),
+      date: checkInDateKey,
     };
-    setCheckIn(entry);
+    const nextRecord: DailyCheckInByPeriod = {
+      date: checkInDateKey,
+      ...(todaysCheckInByPeriod ?? {}),
+      [currentCheckInPeriod]: entry,
+    };
+    setCheckInByPeriod(nextRecord);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(DAILY_CHECKIN_STORAGE_KEY, JSON.stringify(entry));
+      window.localStorage.setItem(DAILY_CHECKIN_STORAGE_KEY, JSON.stringify(nextRecord));
     }
     setCheckInSuccess(true);
     setTimeout(() => {
@@ -287,26 +393,22 @@ export default function DashboardPage() {
 
     async function loadAiCards() {
       setAiCardError("");
-      setStretchRecommendationError("");
 
       try {
-        const [weeklyRes, injuryRes, focusRes, stretchRes] = await Promise.all([
+        const [weeklyRes, injuryRes, focusRes] = await Promise.all([
           fetch(weeklyInsightsUrl, { cache: "no-store" }),
           fetch("/api/ai/injury-risk", { cache: "no-store" }),
           fetch("/api/ai/today-focus", { cache: "no-store" }),
-          fetch("/api/ai/stretch-recommendations", { cache: "no-store" }),
         ]);
 
-        const [weeklyData, injuryData, focusData, stretchData] = (await Promise.all([
+        const [weeklyData, injuryData, focusData] = (await Promise.all([
           weeklyRes.json(),
           injuryRes.json(),
           focusRes.json(),
-          stretchRes.json(),
         ])) as [
           { payload?: WeeklyInsightsPayload; error?: string },
           { payload?: InjuryRiskPayload; error?: string },
-          { payload?: TodayFocusPayload; error?: string },
-          { payload?: StretchRecommendationPayload; error?: string }
+          { payload?: TodayFocusPayload; error?: string }
         ];
 
         if (canceled) {
@@ -323,12 +425,6 @@ export default function DashboardPage() {
 
         if (focusRes.ok && focusData.payload) {
           setTodayFocus(focusData.payload);
-        }
-
-        if (stretchRes.ok && stretchData.payload) {
-          setStretchRecommendation(stretchData.payload);
-        } else if (!stretchRes.ok && stretchData.error) {
-          setStretchRecommendationError(stretchData.error);
         }
 
         const fallbackError = weeklyData.error ?? injuryData.error ?? focusData.error;
@@ -351,58 +447,100 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-2.5">
-      <article className="rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2 shadow-none backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-900/70">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-            {todaysRecommendation ? "Run on deck" : "Rest Day / Recovery Day"}
-          </p>
-          {trainingPlanName ? <p className="text-[11px] text-slate-500 dark:text-slate-400">{trainingPlanName}</p> : null}
-        </div>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          {todaysRecommendation
-            ? `${todaysRecommendation.title} • ${todaysRecommendation.runType}`
-            : nextRecommendation
+      {todaysRecommendation ? (
+        <details className="group rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2 shadow-none backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-900/70">
+          <summary className="cursor-pointer list-none">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Next Run</p>
+              <Link
+                href="/runs?add=1"
+                className="justify-self-center inline-flex items-center rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+                onClick={(event) => event.stopPropagation()}
+              >
+                Add run
+              </Link>
+              <div className="justify-self-end flex items-center gap-2">
+                {trainingPlanName ? <p className="text-[11px] text-slate-500 dark:text-slate-400">{trainingPlanName}</p> : null}
+                <p className="text-xs text-slate-500 transition group-open:rotate-180 dark:text-slate-400">v</p>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{todaysRecommendation.title}</p>
+          </summary>
+
+          <div className="mt-1.5 border-t border-slate-200/70 pt-1.5 dark:border-slate-700/80">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {typeof todaysRecommendation.distanceMiles === "number" ? (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Distance</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{todaysRecommendation.distanceMiles.toFixed(1)} mi</p>
+                </div>
+              ) : null}
+              {typeof todaysRecommendation.durationMinutes === "number" ? (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Duration</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{todaysRecommendation.durationMinutes} min</p>
+                </div>
+              ) : null}
+              {todaysRecommendation.targetPace ? (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Target pace</p>
+                  <p className="text-sm font-semibold text-violet-600 dark:text-violet-300">{todaysRecommendation.targetPace}</p>
+                </div>
+              ) : null}
+            </div>
+
+            {todaysRecommendation.intervalCount || todaysRecommendation.restTimeMinutes ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {todaysRecommendation.intervalCount ? (
+                  <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+                    {todaysRecommendation.intervalCount} intervals
+                  </span>
+                ) : null}
+                {todaysRecommendation.restTimeMinutes ? (
+                  <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-200">
+                    {todaysRecommendation.restTimeMinutes} min rest
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {todaysWorkoutNotes ? (
+              <p className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-2 text-xs leading-relaxed text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
+                {todaysWorkoutNotes}
+              </p>
+            ) : null}
+            {todaysRecommendation.runType === "Tempo" && todayFocus?.tempoAtPaceSuggestion && !hasClearMainSetTarget(todaysRecommendation.notes, todaysRecommendation.targetPace) ? (
+              <p className="mt-1 text-xs text-blue-700 dark:text-blue-200">At pace: {todayFocus.tempoAtPaceSuggestion}</p>
+            ) : null}
+            {todaysAiCoachNote ? (
+              <p className="mt-2 rounded-lg border border-blue-200/80 bg-blue-50/80 px-2.5 py-2 text-xs text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+                AI Coach: {todaysAiCoachNote.replace(/^AI Coach:\s*/i, "")}
+              </p>
+            ) : null}
+          </div>
+        </details>
+      ) : (
+        <article className="rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2 shadow-none backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-900/70">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Rest Day / Recovery Day</p>
+            {trainingPlanName ? <p className="text-[11px] text-slate-500 dark:text-slate-400">{trainingPlanName}</p> : null}
+          </div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {nextRecommendation
               ? `Next: ${nextRecommendation.title} (${nextRecommendationDay.slice(0, 3)})`
               : "Rest Day / Recovery Day"}
-        </p>
-        {todaysRecommendation && todayFocus?.tip ? (
-          <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-200">Today&apos;s focus: {todayFocus.tip}</p>
-        ) : null}
-        {todaysRecommendation?.runType === "Tempo" && todayFocus?.tempoAtPaceSuggestion && !hasClearMainSetTarget(todaysRecommendation.notes, todaysRecommendation.targetPace) ? (
-          <p className="mt-1 text-xs text-blue-700 dark:text-blue-200">At pace: {todayFocus.tempoAtPaceSuggestion}</p>
-        ) : null}
-        {(todaysRecommendation?.runType === "Tempo" || todaysRecommendation?.runType === "Intervals") && todayFocus?.plannedWorkoutSuggestion ? (
-          <p className="mt-1 text-xs text-blue-700 dark:text-blue-200">Suggested workout: {todayFocus.plannedWorkoutSuggestion}</p>
-        ) : null}
-        {todaysRecommendation ? (
-          <div className="mt-2">
-            <Link
-              href="/runs?add=1"
-              className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
-            >
-              Add run
-            </Link>
-          </div>
-        ) : null}
-      </article>
+          </p>
+        </article>
+      )}
 
-      <article className="rounded-xl border border-blue-200 bg-blue-50/80 p-2.5 shadow-none dark:border-blue-500/30 dark:bg-blue-500/10">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-200">Recommended Stretch</p>
-        <p className="mt-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
-          {stretchRecommendation?.focus ? toTitleCase(stretchRecommendation.focus) : "Load your latest run data to get a suggestion."}
-        </p>
-        {stretchRecommendation?.reason ? <p className="mt-1 text-xs text-blue-700 dark:text-blue-100">{stretchRecommendation.reason}</p> : null}
-        {stretchRecommendationError ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{stretchRecommendationError}</p> : null}
-      </article>
-
-      {!checkIn ? (
+      {!hasLoggedCurrentPeriodCheckIn ? (
         <div className="flex justify-center">
           <button
             type="button"
             onClick={() => setShowCheckInModal(true)}
             className="rounded-xl border border-slate-200/70 bg-white/60 px-5 py-2.5 text-sm font-medium text-slate-700 shadow-none backdrop-blur-sm transition hover:bg-white dark:border-slate-800/80 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-900"
           >
-            Complete Daily Check-In
+            Complete {currentCheckInPeriodLabel} Check-In
           </button>
         </div>
       ) : null}
@@ -480,6 +618,14 @@ export default function DashboardPage() {
               })();
             const hardRatio = localInjuryMetrics.hardRunRatio;
             const sorenessCt = injuryRisk?.metrics?.sorenessMentionCount ?? null;
+            const projectedPct = injuryRisk?.metrics?.projectedMileageIncreasePercent ?? localInjuryMetrics.projectedMileageIncreasePercent;
+            const projectedLabel = projectedPct === 0 ? "0%" : `${projectedPct > 0 ? "+" : ""}${projectedPct.toFixed(0)}%`;
+            const projectedColor =
+              Math.abs(projectedPct) >= 25
+                ? "text-rose-600 dark:text-rose-300"
+                : Math.abs(projectedPct) >= 12
+                  ? "text-amber-600 dark:text-amber-300"
+                  : "text-emerald-600 dark:text-emerald-300";
 
             const mileageLabel = !prevMilesAvailable
               ? `${weeklyMiles.toFixed(1)} mi`
@@ -553,12 +699,16 @@ export default function DashboardPage() {
                   </div>
                 </dl>
 
+                <p className={`mt-2 text-xs ${projectedColor}`}>
+                  {projectedLabel} projected increase in mileage
+                </p>
+
                 {injuryRisk?.suggestion ? (
                   <p className="mt-2 text-xs text-slate-700 dark:text-slate-200">{injuryRisk.suggestion}</p>
                 ) : null}
                 {checkIn ? (
                   (() => {
-                    const lowSleep = checkIn.sleepScore < 70;
+                    const lowSleep = typeof checkIn.sleepScore === "number" && checkIn.sleepScore < 70;
                     const riskyCombo = checkIn.legs === "tight" && (checkIn.energy === "low" || lowSleep);
 
                     return (
@@ -609,43 +759,53 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <article className="rounded-xl border border-slate-200/70 bg-white/60 p-2.5 shadow-none backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-900/70">
+      <details className="group rounded-xl border border-slate-200/70 bg-white/60 p-2.5 shadow-none backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-900/70">
+        <summary className="cursor-pointer list-none">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Weekly Insights</h2>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">AI</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">AI</span>
+              <span className="text-xs text-slate-500 transition group-open:rotate-180 dark:text-slate-400">v</span>
+            </div>
           </div>
-          {checkIn ? (
-            <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-              Today: Legs{" "}
-              <span className="font-semibold capitalize">{checkIn.legs}</span>
-              {" "}&middot;{" "}
-              Energy{" "}
-              <span className="font-semibold capitalize">{checkIn.energy}</span>
-              {" "}&middot;{" "}
-              Sleep{" "}
-              <span className="font-semibold">{checkIn.sleepScore}</span>
-            </p>
-          ) : null}
-          <ul className="mt-2 space-y-2 text-xs text-slate-700 dark:text-slate-200">
-            {(weeklyInsights?.insights ?? []).slice(0, 6).map((insight) => {
-              const parsed = parseWeeklyInsight(insight);
+        </summary>
 
-              return (
-                <li key={insight} className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-2 dark:border-slate-800 dark:bg-slate-800/50">
-                  <div className="flex items-start gap-2">
-                    {parsed.tone ? (
-                      <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${WEEKLY_INSIGHT_STYLES[parsed.tone]}`}>
-                        {parsed.tone}
-                      </span>
-                    ) : null}
-                    <span className="leading-5 text-slate-700 dark:text-slate-200">{parsed.text}</span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          {!weeklyInsights ? <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">No insight available yet.</p> : null}
-      </article>
+        {checkIn ? (
+          <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+            Today: Legs{" "}
+            <span className="font-semibold capitalize">{checkIn.legs}</span>
+            {" "}&middot;{" "}
+            Energy{" "}
+            <span className="font-semibold capitalize">{checkIn.energy}</span>
+            {typeof checkIn.sleepScore === "number" ? (
+              <>
+                {" "}&middot;{" "}
+                Sleep{" "}
+                <span className="font-semibold">{checkIn.sleepScore}</span>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        <ul className="mt-2 space-y-2 text-xs text-slate-700 dark:text-slate-200">
+          {(weeklyInsights?.insights ?? []).slice(0, 6).map((insight) => {
+            const parsed = parseWeeklyInsight(insight);
+
+            return (
+              <li key={insight} className="rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-2 dark:border-slate-800 dark:bg-slate-800/50">
+                <div className="flex items-start gap-2">
+                  {parsed.tone ? (
+                    <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${WEEKLY_INSIGHT_STYLES[parsed.tone]}`}>
+                      {parsed.tone}
+                    </span>
+                  ) : null}
+                  <span className="leading-5 text-slate-700 dark:text-slate-200">{parsed.text}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        {!weeklyInsights ? <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">No insight available yet.</p> : null}
+      </details>
 
       {aiCardError ? <p className="text-xs text-rose-600 dark:text-rose-300">{aiCardError}</p> : null}
 
@@ -675,7 +835,7 @@ export default function DashboardPage() {
               <>
                 <div className="flex items-start justify-between gap-3">
                   <h3 id="checkin-modal-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                    How do you feel today?
+                    How do you feel this {currentCheckInPeriod}?
                   </h3>
                   <button
                     type="button"
@@ -735,29 +895,31 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Sleep score</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {`${pendingSleepScore} • ${sleepScoreBand}`}
-                      </p>
+                  {currentCheckInPeriod === "morning" ? (
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Sleep score</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {`${pendingSleepScore} • ${sleepScoreBand}`}
+                        </p>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={sleepScorePreview}
+                        onChange={(event) => setPendingSleepScore(Number(event.target.value))}
+                        className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600 dark:bg-slate-700"
+                        aria-label="Sleep score"
+                      />
+                      <div className="mt-1 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                        <span>0</span>
+                        <span>50</span>
+                        <span>100</span>
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={sleepScorePreview}
-                      onChange={(event) => setPendingSleepScore(Number(event.target.value))}
-                      className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600 dark:bg-slate-700"
-                      aria-label="Sleep score"
-                    />
-                    <div className="mt-1 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                      <span>0</span>
-                      <span>50</span>
-                      <span>100</span>
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 <button
@@ -766,7 +928,7 @@ export default function DashboardPage() {
                   disabled={!pendingLegs || !pendingEnergy}
                   className="mt-5 w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Log check-in
+                  Log {currentCheckInPeriod} check-in
                 </button>
               </>
             )}

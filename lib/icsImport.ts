@@ -10,6 +10,52 @@ type ParsedEvent = {
   durationMinutes?: number;
 };
 
+type SplitDescription = {
+  notes: string;
+  aiCoachNote?: string;
+};
+
+function splitDescriptionAndAiCoachNote(description: string): SplitDescription {
+  const raw = description.trim();
+  if (!raw) {
+    return { notes: "Imported from .ics training plan" };
+  }
+
+  const lines = raw.split(/\r?\n/);
+  const keptLines: string[] = [];
+  const aiLines: string[] = [];
+
+  const markerRegex = /^(?:ai\s*(?:coach\s*)?(?:recommendation|suggestion)|suggested\s*workout|specific\s*workout\s*recommendation|coaching\s*note)\s*[:\-]\s*(.+)$/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      keptLines.push(line);
+      continue;
+    }
+
+    const markerMatch = trimmed.match(markerRegex);
+    if (markerMatch?.[1]) {
+      aiLines.push(markerMatch[1].trim());
+      continue;
+    }
+
+    keptLines.push(line);
+  }
+
+  const cleanedNotes = keptLines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const recommendation = aiLines.join(" ").trim();
+
+  return {
+    notes: cleanedNotes || "Imported from .ics training plan",
+    aiCoachNote: recommendation ? `AI Coach: ${recommendation}` : undefined,
+  };
+}
+
 function unfoldIcsLines(input: string): string[] {
   const normalized = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const rawLines = normalized.split("\n");
@@ -162,6 +208,7 @@ export function parseIcsToTrainingRecommendations(input: string): Recommendation
     const combinedText = `${event.summary} ${event.description}`.trim();
     const runType = detectRunType(combinedText);
     const surface = detectSurface(combinedText);
+    const parsedDescription = splitDescriptionAndAiCoachNote(event.description);
 
     const dtStart = event.dtStart ?? new Date();
     const durationMinutes =
@@ -177,7 +224,11 @@ export function parseIcsToTrainingRecommendations(input: string): Recommendation
     return {
       date: dtStart.toISOString(),
       title: event.summary || "Planned Workout",
-      notes: event.description || "Imported from .ics training plan",
+      notes: parsedDescription.notes,
+      aiCoachNote:
+        runType === "Tempo" || runType === "Intervals"
+          ? parsedDescription.aiCoachNote
+          : undefined,
       runType,
       surface,
       distanceMiles,

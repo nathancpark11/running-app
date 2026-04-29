@@ -354,7 +354,7 @@ export function AddRunForm({ onSubmit, initialOpen = false }: AddRunFormProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/50 p-4 pt-10 backdrop-blur-sm md:items-center"
+      className="fixed inset-0 z-70 flex items-start justify-center bg-slate-950/50 p-4 pt-10 backdrop-blur-sm md:items-center"
       onClick={closeModal}
     >
       <form

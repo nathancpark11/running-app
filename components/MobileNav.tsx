@@ -13,6 +13,7 @@ const navItems = [
 ];
 
 const moreItems = [
+  { href: "/run-generator", label: "Generator" },
   { href: "/stats", label: "Stats" },
   { href: "/goals", label: "Goals" },
   { href: "/training-plan", label: "Plan" },

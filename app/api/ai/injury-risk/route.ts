@@ -1,12 +1,33 @@
 import { INJURY_RISK_PROMPT } from "@/lib/aiPrompts";
 import { fallbackInjuryRisk } from "@/lib/aiFallbacks";
-import { averagePace, gatherSorenessMentions, getPlannedRunForDate, getPlanContext, getUpcomingKeyWorkouts, getUserRunsAndRecommendations, isInRange, parseIsoDateSafe, sumMiles } from "@/lib/aiData";
+import { averagePace, gatherSorenessMentions, getPlanContext, getUpcomingKeyWorkouts, getUserRunsAndRecommendations, isInRange, parseIsoDateSafe, sumMiles } from "@/lib/aiData";
 import { getCachedInsight, makeCacheKey, startOfWeek, toDateKey, toIso, upsertInsight } from "@/lib/aiInsights";
 import { requestAiJson } from "@/lib/openai";
 import { getAuthenticatedUserId } from "@/lib/session";
 import type { InjuryRiskPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+function toWeekWindow(now: Date) {
+  const thisWeekStart = startOfWeek(now);
+  const thisWeekEnd = new Date(thisWeekStart);
+  thisWeekEnd.setDate(thisWeekStart.getDate() + 6);
+  thisWeekEnd.setHours(23, 59, 59, 999);
+
+  // Analyze completed weeks only.
+  const currentStart = new Date(thisWeekStart);
+  currentStart.setDate(thisWeekStart.getDate() - 7);
+  const currentEnd = new Date(currentStart);
+  currentEnd.setDate(currentStart.getDate() + 6);
+  currentEnd.setHours(23, 59, 59, 999);
+
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(currentStart.getDate() - 7);
+  const previousEnd = new Date(currentEnd);
+  previousEnd.setDate(currentEnd.getDate() - 7);
+
+  return { thisWeekStart, thisWeekEnd, currentStart, currentEnd, previousStart, previousEnd };
+}
 
 export async function GET(request: Request) {
   const userId = await getAuthenticatedUserId();
@@ -18,17 +39,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get("refresh") === "1";
     const now = new Date();
-    const weekStart = startOfWeek(now);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-
-    const prevWeekStart = new Date(weekStart);
-    prevWeekStart.setDate(weekStart.getDate() - 7);
-    const prevWeekEnd = new Date(weekEnd);
-    prevWeekEnd.setDate(weekEnd.getDate() - 7);
-
-    const cacheKey = makeCacheKey([toDateKey(weekStart)]);
+    const { thisWeekStart, thisWeekEnd, currentStart, currentEnd, previousStart, previousEnd } = toWeekWindow(now);
+    const cacheKey = makeCacheKey([toDateKey(currentStart)]);
 
     if (!forceRefresh) {
       const cached = await getCachedInsight<InjuryRiskPayload>(userId, "injury_risk", cacheKey);
@@ -41,12 +53,12 @@ export async function GET(request: Request) {
 
     const currentRuns = runs.filter((run) => {
       const date = parseIsoDateSafe(run.date);
-      return date ? isInRange(date, weekStart, weekEnd) : false;
+      return date ? isInRange(date, currentStart, currentEnd) : false;
     });
 
     const prevRuns = runs.filter((run) => {
       const date = parseIsoDateSafe(run.date);
-      return date ? isInRange(date, prevWeekStart, prevWeekEnd) : false;
+      return date ? isInRange(date, previousStart, previousEnd) : false;
     });
 
     const currentWeekMiles = sumMiles(currentRuns);
@@ -63,6 +75,22 @@ export async function GET(request: Request) {
 
     const hardRuns = currentRuns.filter((run) => ["Tempo", "Intervals", "Hills", "Race"].includes(run.runType));
     const hardRunRatio = currentRuns.length > 0 ? Number((hardRuns.length / currentRuns.length).toFixed(3)) : 0;
+
+    const thisWeekActualMiles = sumMiles(
+      runs.filter((run) => {
+        const date = parseIsoDateSafe(run.date);
+        return date ? isInRange(date, thisWeekStart, thisWeekEnd) : false;
+      })
+    );
+    const thisWeekPlannedMiles = recommendations
+      .filter((item) => {
+        const date = parseIsoDateSafe(item.date);
+        return date ? isInRange(date, thisWeekStart, thisWeekEnd) : false;
+      })
+      .reduce((sum, item) => sum + (item.distanceMiles ?? 0), 0);
+    const projectedWeekMiles = Number(Math.max(thisWeekActualMiles, thisWeekPlannedMiles).toFixed(2));
+    const projectedMileageIncreasePercent =
+      currentWeekMiles > 0 ? Number((((projectedWeekMiles - currentWeekMiles) / currentWeekMiles) * 100).toFixed(2)) : 0;
 
     const recentRuns = [...runs]
       .sort((a, b) => +new Date(b.date) - +new Date(a.date))
@@ -81,6 +109,8 @@ export async function GET(request: Request) {
       currentWeekMiles,
       previousWeekMiles,
       mileageIncreasePercent,
+      projectedWeekMiles,
+      projectedMileageIncreasePercent,
       sorenessMentionCount: sorenessMentions.length,
       sorenessMentions: sorenessMentions.slice(0, 6),
       paceDeclineSeconds,
@@ -94,6 +124,7 @@ export async function GET(request: Request) {
 
     const fallback = fallbackInjuryRisk({
       mileageIncreasePercent,
+      projectedMileageIncreasePercent,
       sorenessMentionCount: sorenessMentions.length,
       paceDeclineSeconds,
       hardRunRatio,
@@ -114,6 +145,8 @@ export async function GET(request: Request) {
         currentWeekMiles,
         previousWeekMiles,
         mileageIncreasePercent,
+        projectedWeekMiles,
+        projectedMileageIncreasePercent,
         sorenessMentionCount: sorenessMentions.length,
         hardRunRatio,
         paceDeclineSeconds,
@@ -126,8 +159,8 @@ export async function GET(request: Request) {
     const saved = await upsertInsight({
       userId,
       insightType: "injury_risk",
-      periodStart: toIso(weekStart),
-      periodEnd: toIso(weekEnd),
+      periodStart: toIso(currentStart),
+      periodEnd: toIso(currentEnd),
       cacheKey,
       payload,
     });
