@@ -214,6 +214,8 @@ export type TrainingRecommendation = {
   restTimeMinutes?: number;
 };
 
+export type ImportConflictStrategy = "override" | "merge";
+
 export type TrainingPlanMetadata = {
   activeGoal?: TrainingGoal | null;
   raceDistance?: string | null;

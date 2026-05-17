@@ -10,7 +10,16 @@ import {
   type ReactNode,
 } from "react";
 import { DEFAULT_GOALS, DEFAULT_ROUTINES } from "@/lib/defaults";
-import type { Goals, PlanCheckResult, Preferences, RunLog, StretchRoutine, TrainingRecommendation, TrainingPlanMetadata } from "@/lib/types";
+import type {
+  Goals,
+  ImportConflictStrategy,
+  PlanCheckResult,
+  Preferences,
+  RunLog,
+  StretchRoutine,
+  TrainingRecommendation,
+  TrainingPlanMetadata,
+} from "@/lib/types";
 import { inferTrainingPlanMetadata } from "@/lib/aiData";
 import { fallbackRunTitle } from "@/lib/aiFallbacks";
 import { TrainingPlanMetadataModal } from "./TrainingPlanMetadataModal";
@@ -32,7 +41,12 @@ type RunTrackContextValue = {
   updateRun: (id: string, run: Omit<RunLog, "id" | "createdAt">) => void;
   updateRunAiSummary: (id: string, next: RunAiSummaryUpdate) => void;
   updateRunPlanCheck: (id: string, next: PlanCheckResult) => void;
-  replaceTrainingRecommendations: (planName: string, recommendations: Omit<TrainingRecommendation, "id">[]) => Promise<void>;
+  replaceTrainingRecommendations: (
+    planName: string,
+    recommendations: Omit<TrainingRecommendation, "id">[],
+    strategy: ImportConflictStrategy
+  ) => Promise<void>;
+  updateTrainingRecommendations: (recommendations: TrainingRecommendation[]) => void;
   updateTrainingRecommendationAiCoachNote: (id: string, aiCoachNote: string) => void;
   clearTrainingPlan: () => void;
   deleteRun: (id: string) => void;
@@ -89,6 +103,10 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
   const [showPlanMetadataModal, setShowPlanMetadataModal] = useState(false);
   const [pendingPlanName, setPendingPlanName] = useState<string>("");
   const [pendingRecommendations, setPendingRecommendations] = useState<TrainingRecommendation[]>([]);
+  const [pendingRequiresMetadataSetup, setPendingRequiresMetadataSetup] = useState(true);
+  const [pendingImportStrategy, setPendingImportStrategy] = useState<ImportConflictStrategy>("merge");
+  const [pendingDeletionPreview, setPendingDeletionPreview] = useState<TrainingRecommendation[]>([]);
+  const [pendingAdditionPreview, setPendingAdditionPreview] = useState<TrainingRecommendation[]>([]);
   const [inferredMetadata, setInferredMetadata] = useState<Partial<TrainingPlanMetadata>>({});
 
   useEffect(() => {
@@ -401,25 +419,92 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
   }, [persistUserData]);
 
   const replaceTrainingRecommendations = useCallback(
-    async (planName: string, recommendations: Omit<TrainingRecommendation, "id">[]) => {
-      const next = recommendations
+    async (
+      planName: string,
+      recommendations: Omit<TrainingRecommendation, "id">[],
+      strategy: ImportConflictStrategy
+    ) => {
+      const imported = recommendations
         .map((recommendation) => ({
           ...recommendation,
           id: crypto.randomUUID(),
         }))
         .sort((a, b) => +new Date(a.date) - +new Date(b.date));
-      const nextName = planName.trim() || "Untitled Plan";
+
+      const existingDateKeys = new Set(trainingRecommendations.map((recommendation) => recommendation.date.slice(0, 10)));
+      const hasOverlapWithExistingPlan = imported.some((recommendation) =>
+        existingDateKeys.has(recommendation.date.slice(0, 10))
+      );
+      const isUpdatingExistingPlan = Boolean(trainingPlanName?.trim().length) && hasOverlapWithExistingPlan;
+      const nextName =
+        planName.trim() || (isUpdatingExistingPlan ? trainingPlanName?.trim() : undefined) || "Untitled Plan";
+
+      const completedDateKeys = new Set(runs.map((run) => run.date.slice(0, 10)));
+      const importedEditable = imported.filter((recommendation) => !completedDateKeys.has(recommendation.date.slice(0, 10)));
+      let deletionPreview: TrainingRecommendation[] = [];
+      const additionPreview = importedEditable;
+
+      let nextRecommendations: TrainingRecommendation[];
+
+      if (strategy === "merge" || importedEditable.length === 0) {
+        nextRecommendations = [...trainingRecommendations, ...importedEditable].sort(
+          (a, b) => +new Date(a.date) - +new Date(b.date)
+        );
+      } else {
+        let startMs = Number.POSITIVE_INFINITY;
+        let endMs = Number.NEGATIVE_INFINITY;
+
+        for (const recommendation of imported) {
+          const ts = +new Date(recommendation.date);
+          if (Number.isFinite(ts)) {
+            startMs = Math.min(startMs, ts);
+            endMs = Math.max(endMs, ts);
+          }
+        }
+
+        const hasRange = Number.isFinite(startMs) && Number.isFinite(endMs);
+        const toDelete = trainingRecommendations.filter((recommendation) => {
+          const dateKey = recommendation.date.slice(0, 10);
+          if (completedDateKeys.has(dateKey)) {
+            return false;
+          }
+
+          if (!hasRange) {
+            return false;
+          }
+
+          const ts = +new Date(recommendation.date);
+          if (!Number.isFinite(ts)) {
+            return false;
+          }
+
+          return ts >= startMs && ts <= endMs;
+        });
+
+        deletionPreview = toDelete;
+
+        const deletedIds = new Set(toDelete.map((recommendation) => recommendation.id));
+        const keptExisting = trainingRecommendations.filter((recommendation) => !deletedIds.has(recommendation.id));
+
+        nextRecommendations = [...keptExisting, ...importedEditable].sort(
+          (a, b) => +new Date(a.date) - +new Date(b.date)
+        );
+      }
 
       // Infer metadata from the plan
-      const metadata = inferTrainingPlanMetadata(nextName, next);
+      const metadata = inferTrainingPlanMetadata(nextName, nextRecommendations);
 
       // Store pending data and show modal for user confirmation
       setPendingPlanName(nextName);
-      setPendingRecommendations(next);
+      setPendingRecommendations(nextRecommendations);
+      setPendingRequiresMetadataSetup(!isUpdatingExistingPlan);
+      setPendingImportStrategy(strategy);
+      setPendingDeletionPreview(deletionPreview);
+      setPendingAdditionPreview(additionPreview);
       setInferredMetadata(metadata);
       setShowPlanMetadataModal(true);
     },
-    []
+    [runs, trainingPlanName, trainingRecommendations]
   );
 
   const confirmTrainingPlanMetadata = useCallback(
@@ -447,6 +532,10 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       setShowPlanMetadataModal(false);
       setPendingPlanName("");
       setPendingRecommendations([]);
+      setPendingRequiresMetadataSetup(true);
+      setPendingImportStrategy("merge");
+      setPendingDeletionPreview([]);
+      setPendingAdditionPreview([]);
       setInferredMetadata({});
     },
     [pendingPlanName, pendingRecommendations, persistUserData]
@@ -456,6 +545,10 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
     setShowPlanMetadataModal(false);
     setPendingPlanName("");
     setPendingRecommendations([]);
+    setPendingRequiresMetadataSetup(true);
+    setPendingImportStrategy("merge");
+    setPendingDeletionPreview([]);
+    setPendingAdditionPreview([]);
     setInferredMetadata({});
   }, []);
 
@@ -478,6 +571,11 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       void persistUserData({ trainingRecommendations: updated });
       return updated;
     });
+  }, [persistUserData]);
+
+  const updateTrainingRecommendations = useCallback((recommendations: TrainingRecommendation[]) => {
+    setTrainingRecommendations(recommendations);
+    void persistUserData({ trainingRecommendations: recommendations });
   }, [persistUserData]);
 
   const updateGoals = useCallback((next: Goals) => {
@@ -536,6 +634,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       updateRunAiSummary,
       updateRunPlanCheck,
       replaceTrainingRecommendations,
+      updateTrainingRecommendations,
       updateTrainingRecommendationAiCoachNote,
       clearTrainingPlan,
       deleteRun,
@@ -557,6 +656,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       updateRunAiSummary,
       updateRunPlanCheck,
       replaceTrainingRecommendations,
+      updateTrainingRecommendations,
       updateTrainingRecommendationAiCoachNote,
       clearTrainingPlan,
       deleteRun,
@@ -574,6 +674,10 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       <TrainingPlanMetadataModal
         isOpen={showPlanMetadataModal}
         planName={pendingPlanName}
+        requiresMetadataSetup={pendingRequiresMetadataSetup}
+        importStrategy={pendingImportStrategy}
+        deletionPreview={pendingDeletionPreview}
+        additionPreview={pendingAdditionPreview}
         inferred={inferredMetadata}
         onConfirm={confirmTrainingPlanMetadata}
         onCancel={cancelTrainingPlanMetadata}

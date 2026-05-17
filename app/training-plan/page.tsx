@@ -1,16 +1,36 @@
 "use client";
 
+import { useMemo } from "react";
 import { IcsImportCard } from "@/components/IcsImportCard";
 import { useRunTrack } from "@/components/RunTrackProvider";
 
 export default function TrainingPlanPage() {
-  const { replaceTrainingRecommendations, clearTrainingPlan, trainingRecommendations, trainingPlanName } = useRunTrack();
+  const {
+    replaceTrainingRecommendations,
+    clearTrainingPlan,
+    trainingRecommendations,
+    trainingPlanName,
+    runs,
+  } = useRunTrack();
+
+  const existingWorkoutDateKeys = useMemo(
+    () => [...new Set(trainingRecommendations.map((item) => item.date.slice(0, 10)))],
+    [trainingRecommendations]
+  );
+
+  const completedDateKeys = useMemo(
+    () => [...new Set(runs.map((item) => item.date.slice(0, 10)))],
+    [runs]
+  );
 
   return (
     <div className="space-y-5">
       <IcsImportCard
-        onImportRecommendations={async (planName, recommendations) => {
-          await replaceTrainingRecommendations(planName, recommendations);
+        existingWorkoutDateKeys={existingWorkoutDateKeys}
+        completedDateKeys={completedDateKeys}
+        existingPlanName={trainingPlanName}
+        onImportRecommendations={async (planName, recommendations, strategy) => {
+          await replaceTrainingRecommendations(planName, recommendations, strategy);
         }}
       />
 

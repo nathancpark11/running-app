@@ -1,11 +1,21 @@
 "use client";
 
-import { useState } from "react";
-import type { TrainingGoal, TrainingPlanMetadata } from "@/lib/types";
+import { useEffect, useState } from "react";
+import type { ImportConflictStrategy, TrainingGoal, TrainingPlanMetadata } from "@/lib/types";
+
+type DeletionPreviewItem = {
+  id: string;
+  date: string;
+  title: string;
+};
 
 type TrainingPlanMetadataModalProps = {
   isOpen: boolean;
   planName: string;
+  requiresMetadataSetup: boolean;
+  importStrategy: ImportConflictStrategy;
+  deletionPreview: DeletionPreviewItem[];
+  additionPreview: DeletionPreviewItem[];
   inferred: Partial<TrainingPlanMetadata>;
   onConfirm: (metadata: Partial<TrainingPlanMetadata>) => void;
   onCancel: () => void;
@@ -24,26 +34,50 @@ const GOAL_OPTIONS: Array<{ value: TrainingGoal; label: string }> = [
 export function TrainingPlanMetadataModal({
   isOpen,
   planName,
+  requiresMetadataSetup,
+  importStrategy,
+  deletionPreview,
+  additionPreview,
   inferred,
   onConfirm,
   onCancel,
 }: TrainingPlanMetadataModalProps) {
-  const [activeGoal, setActiveGoal] = useState<TrainingGoal | "">(inferred.activeGoal ?? "");
-  const [raceDistance, setRaceDistance] = useState(inferred.raceDistance ?? "");
-  const [targetRaceDate, setTargetRaceDate] = useState<string>(() => {
-    if (inferred.targetRaceDate) {
-      try {
-        return new Date(inferred.targetRaceDate).toISOString().split("T")[0];
-      } catch {
-        return "";
-      }
+  const [activeGoal, setActiveGoal] = useState<TrainingGoal | "">("");
+  const [raceDistance, setRaceDistance] = useState("");
+  const [targetRaceDate, setTargetRaceDate] = useState<string>("");
+  const [plannedWeeklyMileage, setPlannedWeeklyMileage] = useState("");
+  const [plannedLongRunDistance, setPlannedLongRunDistance] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
     }
-    return "";
-  });
-  const [plannedWeeklyMileage, setPlannedWeeklyMileage] = useState(inferred.plannedWeeklyMileage?.toString() ?? "");
-  const [plannedLongRunDistance, setPlannedLongRunDistance] = useState(inferred.plannedLongRunDistance?.toString() ?? "");
+
+    setActiveGoal(inferred.activeGoal ?? "");
+    setRaceDistance(inferred.raceDistance ?? "");
+    setTargetRaceDate(() => {
+      if (inferred.targetRaceDate) {
+        try {
+          return new Date(inferred.targetRaceDate).toISOString().split("T")[0];
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    });
+    setPlannedWeeklyMileage(inferred.plannedWeeklyMileage?.toString() ?? "");
+    setPlannedLongRunDistance(inferred.plannedLongRunDistance?.toString() ?? "");
+  }, [inferred, isOpen]);
 
   const handleConfirm = () => {
+    if (!requiresMetadataSetup) {
+      onConfirm({
+        ...inferred,
+        planName: planName.trim(),
+      });
+      return;
+    }
+
     const metadata: Partial<TrainingPlanMetadata> = {
       activeGoal: activeGoal || null,
       raceDistance: raceDistance || null,
@@ -60,17 +94,83 @@ export function TrainingPlanMetadataModal({
 
   if (!isOpen) return null;
 
+  const sortedDeletionPreview = [...deletionPreview].sort((a, b) => +new Date(a.date) - +new Date(b.date));
+  const sortedAdditionPreview = [...additionPreview].sort((a, b) => +new Date(a.date) - +new Date(b.date));
+
+  const formatDateLabel = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value.slice(0, 10);
+    }
+    return parsed.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg dark:bg-slate-900">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-          Confirm Training Plan Details
+          {requiresMetadataSetup ? "Confirm Training Plan Details" : "Confirm Training Plan Update"}
         </h2>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
           Detected: <span className="font-medium">{planName}</span>
         </p>
 
-        <div className="mt-6 space-y-4">
+        {importStrategy === "override" ? (
+          <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-700/40 dark:bg-rose-900/20">
+            <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
+              {sortedDeletionPreview.length > 0
+                ? `${sortedDeletionPreview.length} planned workout${sortedDeletionPreview.length === 1 ? "" : "s"} will be deleted on import.`
+                : "No existing planned workouts will be deleted."}
+            </p>
+            {sortedDeletionPreview.length > 0 ? (
+              <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-5 text-xs text-rose-900 dark:text-rose-100">
+                {sortedDeletionPreview.map((item) => (
+                  <li key={item.id}>
+                    {formatDateLabel(item.date)}: {item.title}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="mt-2 text-xs text-rose-800 dark:text-rose-200/90">
+              Completed workout dates are protected and never deleted.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-700/40 dark:bg-emerald-900/20">
+            <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+              Merge mode selected. Existing planned workouts will be kept.
+            </p>
+            <p className="mt-1 text-xs text-emerald-800 dark:text-emerald-200/90">
+              Completed workout dates are also preserved.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-700/40 dark:bg-blue-900/20">
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+            {sortedAdditionPreview.length} workout{sortedAdditionPreview.length === 1 ? "" : "s"} will be added from this import.
+          </p>
+          {sortedAdditionPreview.length > 0 ? (
+            <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-5 text-xs text-blue-900 dark:text-blue-100">
+              {sortedAdditionPreview.map((item) => (
+                <li key={item.id}>
+                  {formatDateLabel(item.date)}: {item.title}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-xs text-blue-800 dark:text-blue-200/90">
+              No new workouts will be added from this file.
+            </p>
+          )}
+        </div>
+
+        {requiresMetadataSetup ? (
+          <div className="mt-6 space-y-4">
           {/* Training Goal */}
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -173,7 +273,8 @@ export function TrainingPlanMetadataModal({
               </p>
             )}
           </div>
-        </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 flex justify-end gap-3">
           <button
@@ -188,7 +289,7 @@ export function TrainingPlanMetadataModal({
             onClick={handleConfirm}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
-            Confirm & Import
+            {requiresMetadataSetup ? "Confirm & Import" : "Confirm Update"}
           </button>
         </div>
       </div>
