@@ -1,6 +1,6 @@
 "use client";
 
-import { TrainingRecommendation } from "@/lib/types";
+import { TrainingRecommendation, RunType, RunSurface } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 interface PlannedRunEditModalProps {
@@ -10,13 +10,13 @@ interface PlannedRunEditModalProps {
   onCancel: () => void;
 }
 
-const RUN_TYPES = ["Easy", "Tempo", "Interval", "Long Run", "Recovery", "Track Work", "Fartlek"];
-const SURFACES = ["Road", "Trail", "Track", "Treadmill", "Mixed"];
+const RUN_TYPES: RunType[] = ["Easy", "Long", "Endurance", "Tempo", "Recovery", "Intervals", "Race", "Hills", "Hike"];
+const SURFACES: RunSurface[] = ["Outdoor", "Treadmill"];
 
 export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCancel }: PlannedRunEditModalProps) {
   const [title, setTitle] = useState("");
-  const [runType, setRunType] = useState("");
-  const [surface, setSurface] = useState("");
+  const [runType, setRunType] = useState<RunType | "">("");
+  const [surface, setSurface] = useState<RunSurface | "">("");
   const [distanceMiles, setDistanceMiles] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("");
   const [targetPace, setTargetPace] = useState("");
@@ -29,8 +29,8 @@ export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCance
   useEffect(() => {
     if (isOpen && recommendation) {
       setTitle(recommendation.title);
-      setRunType(recommendation.runType || "");
-      setSurface(recommendation.surface || "");
+      setRunType((recommendation.runType as RunType) || "");
+      setSurface((recommendation.surface as RunSurface) || "");
       setDistanceMiles(recommendation.distanceMiles?.toString() || "");
       setDurationMinutes(recommendation.durationMinutes?.toString() || "");
       setTargetPace(recommendation.targetPace || "");
@@ -94,7 +94,7 @@ export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCance
             </label>
             <select 
               value={runType} 
-              onChange={(e) => setRunType(e.target.value)}
+              onChange={(e) => setRunType(e.target.value as RunType | "")}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-600 dark:bg-slate-800 dark:text-white"
             >
               <option value="">Select run type...</option>
@@ -113,7 +113,7 @@ export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCance
             </label>
             <select 
               value={surface} 
-              onChange={(e) => setSurface(e.target.value)}
+              onChange={(e) => setSurface(e.target.value as RunSurface | "")}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-600 dark:bg-slate-800 dark:text-white"
             >
               <option value="">Select surface...</option>
