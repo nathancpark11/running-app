@@ -62,8 +62,9 @@ export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCance
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-6 py-4">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] flex flex-col">
+        {/* Header - fixed */}
+        <div className="flex-none border-b border-slate-200 dark:border-slate-700 px-6 py-4">
           <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
             Edit Planned Workout
           </h2>
@@ -72,7 +73,8 @@ export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCance
           </p>
         </div>
 
-        <div className="p-6 space-y-5">
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">
@@ -225,8 +227,8 @@ export function PlannedRunEditModal({ isOpen, recommendation, onConfirm, onCance
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="sticky bottom-0 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-6 py-4 flex justify-end gap-3">
+        {/* Footer - fixed */}
+        <div className="flex-none border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-6 py-4 flex justify-end gap-3">
           <button 
             onClick={onCancel} 
             className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 dark:border-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
