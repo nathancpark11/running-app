@@ -47,6 +47,7 @@ type RunTrackContextValue = {
     strategy: ImportConflictStrategy
   ) => Promise<void>;
   updateTrainingRecommendations: (recommendations: TrainingRecommendation[]) => void;
+  updateTrainingRecommendation: (id: string, updates: Partial<Omit<TrainingRecommendation, "id">>) => void;
   updateTrainingRecommendationAiCoachNote: (id: string, aiCoachNote: string) => void;
   clearTrainingPlan: () => void;
   deleteRun: (id: string) => void;
@@ -578,6 +579,24 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
     void persistUserData({ trainingRecommendations: recommendations });
   }, [persistUserData]);
 
+  const updateTrainingRecommendation = useCallback(
+    (id: string, updates: Partial<Omit<TrainingRecommendation, "id">>) => {
+      setTrainingRecommendations((prev) => {
+        const updated = prev.map((recommendation) =>
+          recommendation.id === id
+            ? {
+                ...recommendation,
+                ...updates,
+              }
+            : recommendation
+        );
+        void persistUserData({ trainingRecommendations: updated });
+        return updated;
+      });
+    },
+    [persistUserData]
+  );
+
   const updateGoals = useCallback((next: Goals) => {
     setGoals(next);
     void persistUserData({ goals: next });
@@ -635,6 +654,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       updateRunPlanCheck,
       replaceTrainingRecommendations,
       updateTrainingRecommendations,
+      updateTrainingRecommendation,
       updateTrainingRecommendationAiCoachNote,
       clearTrainingPlan,
       deleteRun,
@@ -657,6 +677,7 @@ export function RunTrackProvider({ children }: { children: ReactNode }) {
       updateRunPlanCheck,
       replaceTrainingRecommendations,
       updateTrainingRecommendations,
+      updateTrainingRecommendation,
       updateTrainingRecommendationAiCoachNote,
       clearTrainingPlan,
       deleteRun,

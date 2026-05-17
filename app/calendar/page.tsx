@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRunTrack } from "@/components/RunTrackProvider";
+import { PlannedRunEditModal } from "@/components/PlannedRunEditModal";
 import { formatDuration, formatPace } from "@/lib/format";
 import type { PlanCheckResult, RunLog, TrainingRecommendation } from "@/lib/types";
 
@@ -497,7 +498,8 @@ export default function CalendarPage() {
       setWeekCardSourceIndex(null);
       setWeekCardTargetIndex(null);
     }
-  const { runs, trainingRecommendations, updateRunPlanCheck, updateTrainingRecommendations } = useRunTrack();
+  const { runs, trainingRecommendations, updateRunPlanCheck, updateTrainingRecommendations, updateTrainingRecommendation } = useRunTrack();
+  const [editingRecommendation, setEditingRecommendation] = useState<TrainingRecommendation | null>(null);
   const todayKey = keyForDate(new Date());
   // (removed duplicate state declarations)
 
@@ -651,6 +653,40 @@ export default function CalendarPage() {
 
     return rows;
   }, [displayMonth, mileageByWeekStart, view]);
+
+  const monthlyPlannedMileage = useMemo(() => {
+    const monthStart = new Date(displayMonth.getFullYear(), displayMonth.getMonth(), 1);
+    const monthEnd = new Date(displayMonth.getFullYear(), displayMonth.getMonth() + 1, 0);
+    let total = 0;
+
+    const plannedByDate = new Map<string, number>();
+    activeRecommendations.forEach((recommendation) => {
+      const dateKey = recommendation.date.slice(0, 10);
+      plannedByDate.set(dateKey, (plannedByDate.get(dateKey) ?? 0) + (recommendation.distanceMiles ?? 0));
+    });
+
+    const allDateKeys = new Set<string>([...plannedByDate.keys(), ...runsByDate.keys()]);
+
+    allDateKeys.forEach((dateKey) => {
+      const parsed = parseDateKeyToLocalDate(dateKey);
+      if (!parsed) {
+        return;
+      }
+
+      // Only include dates within this month
+      if (parsed < monthStart || parsed > monthEnd) {
+        return;
+      }
+
+      const dayRuns = runsByDate.get(dateKey) ?? [];
+      const completedMiles = dayRuns.reduce((acc, run) => acc + (run.distanceMiles ?? 0), 0);
+      const plannedMiles = plannedByDate.get(dateKey) ?? 0;
+      const dayMiles = dayRuns.length > 0 ? completedMiles : plannedMiles;
+      total += dayMiles;
+    });
+
+    return total;
+  }, [displayMonth, activeRecommendations, runsByDate]);
 
   const recommendationsByDate = useMemo(() => {
     const map = new Map<string, typeof trainingRecommendations>();
@@ -970,48 +1006,37 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div>
+      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Title + mileage */}
+          <div>
             {view === "week" ? (
               <>
                 <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   {weekOffset === 0 ? "Current week" : weekOffset < 0 ? `${Math.abs(weekOffset)} week${Math.abs(weekOffset) > 1 ? "s" : ""} ago` : `${weekOffset} week${weekOffset > 1 ? "s" : ""} ahead`}
                 </p>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">{weekRangeLabel}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold text-slate-900 sm:text-xl dark:text-slate-100">{weekRangeLabel}</h2>
                   <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     {currentWeekPlannedMileage.toFixed(1)} mi{" "}
-                    <span
-                      className={`italic ${
-                        currentWeekChangeLabel.includes("decrease")
-                          ? "text-amber-600 dark:text-amber-300"
-                          : "text-emerald-600 dark:text-emerald-300"
-                      }`}
-                    >
+                    <span className={`italic ${currentWeekChangeLabel.includes("decrease") ? "text-amber-600 dark:text-amber-300" : "text-emerald-600 dark:text-emerald-300"}`}>
                       ({currentWeekChangeLabel})
                     </span>
                   </span>
                 </div>
               </>
             ) : (
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-                {displayMonth.toLocaleString(undefined, { month: "long", year: "numeric" })}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900 sm:text-xl dark:text-slate-100">
+                  {displayMonth.toLocaleString(undefined, { month: "long", year: "numeric" })}
+                </h2>
+                <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {monthlyPlannedMileage.toFixed(1)} mi
+                </span>
+              </div>
             )}
-            </div>
-            {!isEditingPlan ? (
-              <button
-                type="button"
-                onClick={beginPlanEdit}
-                disabled={!hasPlanRecommendations}
-                className="rounded-lg border border-blue-300 bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500/40"
-              >
-                Edit Training Plan
-              </button>
-            ) : null}
           </div>
+          {/* Controls: nav arrows + Edit Plan + Week/Month toggle */}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1020,7 +1045,7 @@ export default function CalendarPage() {
                   ? setWeekOffset((prev) => prev - 1)
                   : setDisplayMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
               }
-              className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
               aria-label={view === "week" ? "Previous week" : "Previous month"}
             >
               <span aria-hidden="true">&larr;</span>
@@ -1032,20 +1057,27 @@ export default function CalendarPage() {
                   ? setWeekOffset((prev) => prev + 1)
                   : setDisplayMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
               }
-              className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
               aria-label={view === "week" ? "Next week" : "Next month"}
             >
               <span aria-hidden="true">&rarr;</span>
             </button>
-            {/* Show both view toggles, but disable switching to week view while editing */}
+            {!isEditingPlan ? (
+              <button
+                type="button"
+                onClick={beginPlanEdit}
+                disabled={!hasPlanRecommendations}
+                className="rounded-lg border border-blue-300 bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500/40"
+              >
+                Edit Plan
+              </button>
+            ) : null}
             <div className="flex rounded-lg border border-slate-300 overflow-hidden dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => !isEditingPlan && setView("week")}
-                className={`px-3 py-1 text-xs font-medium transition ${
-                  view === "week"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                className={`px-3 py-1.5 text-xs font-medium transition ${
+                  view === "week" ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                 } ${isEditingPlan ? "opacity-50 cursor-not-allowed" : ""}`}
                 disabled={isEditingPlan}
               >
@@ -1054,10 +1086,8 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => setView("month")}
-                className={`px-3 py-1 text-xs font-medium transition ${
-                  view === "month"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                className={`px-3 py-1.5 text-xs font-medium transition ${
+                  view === "month" ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                 }`}
               >
                 Month
@@ -1066,10 +1096,10 @@ export default function CalendarPage() {
           </div>
         </div>
 
+        {isEditingPlan ? (
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="flex flex-wrap items-center gap-2">
-            {isEditingPlan ? (
-              <>
+            <>
                 <button
                   type="button"
                   onClick={savePlanEdit}
@@ -1142,39 +1172,38 @@ export default function CalendarPage() {
                 >
                   Clear Selection
                 </button>
-              </>
-            ) : null}
+            </>
           </div>
           {editStatusMessage ? (
             <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{editStatusMessage}</p>
           ) : null}
-          {isEditingPlan && selectedSwapDays.length > 0 && !isSelectingSwapTargets ? (
+          {selectedSwapDays.length > 0 && !isSelectingSwapTargets ? (
             <p className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300">
               {selectedSwapDays.length} day(s) selected. Click Move To, then {weekCardSourceIndex !== null ? "click another weekly mileage card" : `click ${selectedSwapDays.length} destination day(s)`}.
             </p>
           ) : null}
-          {isEditingPlan && isSelectingSwapTargets ? (
+          {isSelectingSwapTargets ? (
             <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">
               Destination mode: select {selectedSwapDays.length} day(s). Selected {swapTargetDays.length}/{selectedSwapDays.length}.
             </p>
           ) : null}
-          {isEditingPlan ? (
-            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              Edits apply only to workouts on days without logged runs.
-            </p>
-          ) : null}
-          {!isEditingPlan && !hasPlanRecommendations ? (
-            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              No training plan workouts found to edit.
-            </p>
-          ) : null}
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            Edits apply only to workouts on days without logged runs.
+          </p>
         </div>
+        ) : null}
 
         {/* Only allow editing controls in month view, but always show week/month grid */}
         {view === "month" ? (
           <>
-            <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-medium text-slate-500 dark:text-slate-400">
-              <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+            <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-500 sm:gap-2 dark:text-slate-400">
+              <span><span className="sm:hidden">M</span><span className="hidden sm:inline">Mon</span></span>
+              <span><span className="sm:hidden">T</span><span className="hidden sm:inline">Tue</span></span>
+              <span><span className="sm:hidden">W</span><span className="hidden sm:inline">Wed</span></span>
+              <span><span className="sm:hidden">T</span><span className="hidden sm:inline">Thu</span></span>
+              <span><span className="sm:hidden">F</span><span className="hidden sm:inline">Fri</span></span>
+              <span><span className="sm:hidden">S</span><span className="hidden sm:inline">Sat</span></span>
+              <span><span className="sm:hidden">S</span><span className="hidden sm:inline">Sun</span></span>
             </div>
             <div className="mt-2 space-y-2">
               {monthWeekRows.map((row, rowIndex) => (
@@ -1272,10 +1301,10 @@ export default function CalendarPage() {
                       );
                     })()}
                   </div>
-                  <div className="grid grid-cols-7 gap-2">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {row.days.map((day, dayIndex) => {
                       if (!day) {
-                        return <div key={`empty-${rowIndex}-${dayIndex}`} className="h-20 rounded-xl bg-slate-50 dark:bg-slate-800/40" />;
+                        return <div key={`empty-${rowIndex}-${dayIndex}`} className="h-16 rounded-xl bg-slate-50 sm:h-20 dark:bg-slate-800/40" />;
                       }
 
                       const key = keyForDate(day);
@@ -1290,8 +1319,12 @@ export default function CalendarPage() {
                       const canSelectAsTarget = isEditingPlan && isSelectingSwapTargets && !hasCompletedRun && !isSelectedSwapDay;
                       const weekCardLockedTargetSelection = isSelectingSwapTargets && weekCardSourceIndex !== null;
 
+                      const completedMiles = dayRuns.reduce((sum, r) => sum + (r.distanceMiles ?? 0), 0);
+                      const plannedMiles = dayRecommendations[0]?.distanceMiles;
+                      const displayMiles = hasCompletedRun ? completedMiles : (plannedMiles ?? null);
+
                       return (
-                        <div key={key} className="relative h-20">
+                        <div key={key} className="relative h-16 sm:h-20">
                           <button
                             type="button"
                             onClick={() => {
@@ -1309,7 +1342,7 @@ export default function CalendarPage() {
                                 setSelectedDate(day);
                               }
                             }}
-                            className={`absolute inset-0 w-full h-full rounded-xl border p-2 text-left transition hover:border-blue-300 hover:shadow-sm dark:hover:border-blue-400/60 z-0 ${
+                            className={`absolute inset-0 w-full h-full rounded-xl border p-1.5 text-left transition hover:border-blue-300 hover:shadow-sm sm:p-2 dark:hover:border-blue-400/60 z-0 ${
                               isSelectedSwapDay
                                 ? "border-yellow-400 bg-yellow-50 dark:border-yellow-400 dark:bg-yellow-900/30"
                                 : isSwapTargetDay
@@ -1332,15 +1365,19 @@ export default function CalendarPage() {
                                 : `Open details for ${day.toLocaleDateString()}`
                             }
                           >
-                            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{day.getDate()}</p>
-                            {dayRuns.length > 0 ? (
-                              <p className="mt-1 truncate rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-                                {dayRuns[0].title}
+                            <p className="text-xs font-medium text-slate-800 sm:text-sm dark:text-slate-100">{day.getDate()}</p>
+                            {displayMiles != null && displayMiles > 0 ? (
+                              <p className={`mt-0.5 text-[10px] font-semibold leading-tight sm:text-xs ${
+                                hasCompletedRun
+                                  ? "text-emerald-700 dark:text-emerald-200"
+                                  : "text-blue-600 dark:text-blue-300"
+                              }`}>
+                                {displayMiles.toFixed(1)}
+                                <span className="text-[9px] font-normal sm:text-[10px]">mi</span>
                               </p>
-                            ) : null}
-                            {dayRecommendations.length > 0 ? (
-                              <p className="mt-1 truncate rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">
-                                {dayRecommendations[0].title}
+                            ) : dayRecommendations.length > 0 ? (
+                              <p className="mt-0.5 text-[9px] leading-tight text-blue-500 sm:text-[10px] dark:text-blue-400">
+                                {dayRecommendations[0].runType?.slice(0, 3)}
                               </p>
                             ) : null}
                           </button>
@@ -1471,14 +1508,23 @@ export default function CalendarPage() {
                                         )}`
                                       : ""}
                                   </span>
-                                  {isQualityWorkout(recommendation.runType) ? (
-                                    <Link
-                                      href={`/run-generator?workoutId=${encodeURIComponent(recommendation.id)}`}
-                                      className="inline-block rounded-md border border-blue-300 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/50 dark:text-blue-200 dark:hover:bg-blue-500/10"
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingRecommendation(recommendation)}
+                                      className="inline-block rounded-md border border-amber-300 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 transition hover:bg-amber-50 dark:border-amber-500/50 dark:text-amber-200 dark:hover:bg-amber-500/10"
                                     >
-                                      Open Run Generator
-                                    </Link>
-                                  ) : null}
+                                      Edit
+                                    </button>
+                                    {isQualityWorkout(recommendation.runType) ? (
+                                      <Link
+                                        href={`/run-generator?workoutId=${encodeURIComponent(recommendation.id)}`}
+                                        className="inline-block rounded-md border border-blue-300 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/50 dark:text-blue-200 dark:hover:bg-blue-500/10"
+                                      >
+                                        Open Run Generator
+                                      </Link>
+                                    ) : null}
+                                  </div>
                                 </div>
                                 {recommendation.runType === "Tempo" && tempoAtPaceByDate[recommendation.date.slice(0, 10)] && !hasClearMainSetTarget(recommendation.notes, recommendation.targetPace) ? (
                                   <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-200">
@@ -1671,14 +1717,23 @@ export default function CalendarPage() {
                           >
                             <div className="flex items-start justify-between gap-2">
                               <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recommendation.runType}</p>
-                              {isQualityWorkout(recommendation.runType) ? (
-                                <Link
-                                  href={`/run-generator?workoutId=${encodeURIComponent(recommendation.id)}`}
-                                  className="inline-block rounded-md border border-blue-300 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/50 dark:text-blue-200 dark:hover:bg-blue-500/10"
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingRecommendation(recommendation)}
+                                  className="inline-block rounded-md border border-amber-300 px-2 py-1 text-[11px] font-medium text-amber-700 transition hover:bg-amber-50 dark:border-amber-500/50 dark:text-amber-200 dark:hover:bg-amber-500/10"
                                 >
-                                  Open Run Generator
-                                </Link>
-                              ) : null}
+                                  Edit
+                                </button>
+                                {isQualityWorkout(recommendation.runType) ? (
+                                  <Link
+                                    href={`/run-generator?workoutId=${encodeURIComponent(recommendation.id)}`}
+                                    className="inline-block rounded-md border border-blue-300 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/50 dark:text-blue-200 dark:hover:bg-blue-500/10"
+                                  >
+                                    Open Run Generator
+                                  </Link>
+                                ) : null}
+                              </div>
                             </div>
                             {displayedMiles ? (
                               <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Distance: {displayedMiles} mi</p>
@@ -1783,6 +1838,18 @@ export default function CalendarPage() {
           </div>
         );
       })() : null}
+
+      <PlannedRunEditModal
+        isOpen={Boolean(editingRecommendation)}
+        recommendation={editingRecommendation}
+        onConfirm={(updates) => {
+          if (editingRecommendation) {
+            updateTrainingRecommendation(editingRecommendation.id, updates);
+            setEditingRecommendation(null);
+          }
+        }}
+        onCancel={() => setEditingRecommendation(null)}
+      />
     </div>
   );
 }
