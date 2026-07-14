@@ -5,7 +5,7 @@ import { Upload } from "lucide-react";
 import { parseIcsToTrainingRecommendations } from "@/lib/icsImport";
 import type { ImportConflictStrategy, TrainingRecommendation } from "@/lib/types";
 
-const ICS_TEMPLATE_PATH = "/references/training-plan-template.ics";
+const ICS_TEMPLATE_PATH = "/api/ics-template";
 
 type RecommendationDraft = Omit<TrainingRecommendation, "id">;
 

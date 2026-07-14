@@ -1,0 +1,62 @@
+const ICS_TEMPLATE = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Running App//Training Plan Template//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+
+BEGIN:VEVENT
+UID:tempo-20260720@running-app
+DTSTAMP:20260714T120000Z
+DTSTART:20260720T070000
+DTEND:20260720T080000
+SUMMARY:Tempo Run 6 miles
+DESCRIPTION:2 mi warm-up\\n3 mi tempo\\n1 mi cool-down\\nCoaching Note: Stay controlled through the first mile.
+END:VEVENT
+
+BEGIN:VEVENT
+UID:intervals-20260722@running-app
+DTSTAMP:20260714T120000Z
+DTSTART:20260722T063000
+DURATION:PT50M
+SUMMARY:Intervals 6 x 800m treadmill
+DESCRIPTION:Warm-up 10 min\\n6 x 800m with 2 min recovery\\nCool-down 10 min\\nAI Coach Recommendation: Keep each rep even.
+END:VEVENT
+
+BEGIN:VEVENT
+UID:recovery-20260724@running-app
+DTSTAMP:20260714T120000Z
+DTSTART:20260724
+SUMMARY:Recovery Run 4 miles
+DESCRIPTION:Easy conversational effort. Keep cadence relaxed and smooth.
+END:VEVENT
+
+BEGIN:VEVENT
+UID:long-20260726@running-app
+DTSTAMP:20260714T120000Z
+DTSTART:20260726T073000
+DTEND:20260726T100000
+SUMMARY:Long Run 12 miles
+DESCRIPTION:Steady aerobic effort. Practice fueling every 30 minutes.
+END:VEVENT
+
+BEGIN:VEVENT
+UID:strength-20260727@running-app
+DTSTAMP:20260714T120000Z
+DTSTART:20260727T180000
+DURATION:PT45M
+SUMMARY:Strength Training
+DESCRIPTION:Gym session focused on lower body, core work, and mobility.
+END:VEVENT
+
+END:VCALENDAR
+`;
+
+export async function GET() {
+  return new Response(ICS_TEMPLATE, {
+    headers: {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="training-plan-template.ics"',
+      "Cache-Control": "public, max-age=0, must-revalidate",
+    },
+  });
+}
