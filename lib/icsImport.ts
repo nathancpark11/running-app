@@ -124,7 +124,7 @@ function splitDescriptionAndAiCoachNote(description: string): SplitDescription {
   const recommendation = aiLines.join(" ").trim();
 
   return {
-    notes: structuredNotes ?? cleanedNotes || "Imported from .ics training plan",
+    notes: structuredNotes ?? (cleanedNotes || "Imported from .ics training plan"),
     aiCoachNote: recommendation ? `AI Coach: ${recommendation}` : undefined,
   };
 }
