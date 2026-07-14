@@ -110,8 +110,9 @@ export function TrainingPlanMetadataModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-lg dark:bg-slate-900">
+        <div className="flex-1 overflow-y-auto p-6">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
           {requiresMetadataSetup ? "Confirm Training Plan Details" : "Confirm Training Plan Update"}
         </h2>
@@ -275,8 +276,9 @@ export function TrainingPlanMetadataModal({
           </div>
           </div>
         ) : null}
+        </div>
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4 dark:border-slate-700">
           <button
             type="button"
             onClick={onCancel}
