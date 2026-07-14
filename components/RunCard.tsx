@@ -123,7 +123,7 @@ export function RunCard({
           ) : null}
 
           {run.notes.trim().length > 0 ? (
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{run.notes}</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">{run.notes}</p>
           ) : null}
 
           {run.aiSummary ? (
@@ -246,7 +246,7 @@ export function RunCard({
       <div className="mt-3.5 md:mt-4">
         <div>
           {run.notes.trim().length > 0 ? (
-            <p className="text-sm text-slate-600 dark:text-slate-300">{run.notes}</p>
+            <p className="whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">{run.notes}</p>
           ) : null}
           {run.aiSummary ? (
             <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100">

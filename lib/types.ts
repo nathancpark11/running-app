@@ -231,6 +231,7 @@ export type Goals = {
   weeklyMileage: number;
   monthlyMileage: number;
   longRunGoal: number;
+  estimatedPace?: string;
   trainingPlan?: TrainingPlanMetadata;
 };
 

@@ -13,6 +13,7 @@ type IcsImportCardProps = {
   existingWorkoutDateKeys: string[];
   completedDateKeys: string[];
   existingPlanName: string | null;
+  estimatedPace?: string;
   onImportRecommendations: (
     planName: string,
     recommendations: RecommendationDraft[],
@@ -24,6 +25,7 @@ export function IcsImportCard({
   existingWorkoutDateKeys,
   completedDateKeys,
   existingPlanName,
+  estimatedPace,
   onImportRecommendations,
 }: IcsImportCardProps) {
   const [draftRecommendations, setDraftRecommendations] = useState<RecommendationDraft[]>([]);
@@ -83,7 +85,7 @@ export function IcsImportCard({
 
     try {
       const content = await file.text();
-      const parsed = parseIcsToTrainingRecommendations(content);
+      const parsed = parseIcsToTrainingRecommendations(content, { estimatedPace });
       setDraftRecommendations(parsed);
       if (parsed.length === 0) {
         setError("No VEVENT blocks were found in this .ics file.");

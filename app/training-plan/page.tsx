@@ -10,6 +10,7 @@ export default function TrainingPlanPage() {
     clearTrainingPlan,
     trainingRecommendations,
     trainingPlanName,
+    goals,
     runs,
   } = useRunTrack();
 
@@ -29,6 +30,7 @@ export default function TrainingPlanPage() {
         existingWorkoutDateKeys={existingWorkoutDateKeys}
         completedDateKeys={completedDateKeys}
         existingPlanName={trainingPlanName}
+        estimatedPace={goals.estimatedPace}
         onImportRecommendations={async (planName, recommendations, strategy) => {
           await replaceTrainingRecommendations(planName, recommendations, strategy);
         }}

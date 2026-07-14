@@ -15,6 +15,77 @@ type SplitDescription = {
   aiCoachNote?: string;
 };
 
+type ParseIcsOptions = {
+  estimatedPace?: string;
+};
+
+type WorkoutSectionKey = "warmUp" | "mainSet" | "coolDown";
+
+const SECTION_LABELS: Record<WorkoutSectionKey, string> = {
+  warmUp: "Warm Up",
+  mainSet: "Main Set",
+  coolDown: "Cool Down",
+};
+
+function formatStructuredWorkoutNotes(description: string): string | undefined {
+  const normalized = description
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  const sectionRegex = /\b(warm\s*up|wu|main\s*set|ms|cool\s*down|cd)\b\s*[:\-]?/gi;
+  const matches = [...normalized.matchAll(sectionRegex)];
+  if (matches.length < 2) {
+    return undefined;
+  }
+
+  const sections = new Map<WorkoutSectionKey, string>();
+
+  for (let index = 0; index < matches.length; index += 1) {
+    const current = matches[index];
+    const next = matches[index + 1];
+    const rawLabel = current[1].toLowerCase().replace(/\s+/g, "");
+    const key: WorkoutSectionKey | undefined =
+      rawLabel === "warmup" || rawLabel === "wu"
+        ? "warmUp"
+        : rawLabel === "mainset" || rawLabel === "ms"
+          ? "mainSet"
+          : rawLabel === "cooldown" || rawLabel === "cd"
+            ? "coolDown"
+            : undefined;
+
+    if (!key) {
+      continue;
+    }
+
+    const start = current.index + current[0].length;
+    const end = next?.index ?? normalized.length;
+    const value = normalized
+      .slice(start, end)
+      .trim()
+      .replace(/^[\s:;,-]+/, "")
+      .replace(/[\s;,-]+$/, "")
+      .trim();
+
+    if (value) {
+      sections.set(key, value);
+    }
+  }
+
+  if (sections.size === 0) {
+    return undefined;
+  }
+
+  return (["warmUp", "mainSet", "coolDown"] as const)
+    .filter((key) => sections.has(key))
+    .map((key) => `${SECTION_LABELS[key]}: ${sections.get(key)}`)
+    .join("\n");
+}
+
 function splitDescriptionAndAiCoachNote(description: string): SplitDescription {
   const raw = description.trim();
   if (!raw) {
@@ -48,10 +119,12 @@ function splitDescriptionAndAiCoachNote(description: string): SplitDescription {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  const structuredNotes = formatStructuredWorkoutNotes(cleanedNotes);
+
   const recommendation = aiLines.join(" ").trim();
 
   return {
-    notes: cleanedNotes || "Imported from .ics training plan",
+    notes: structuredNotes ?? cleanedNotes || "Imported from .ics training plan",
     aiCoachNote: recommendation ? `AI Coach: ${recommendation}` : undefined,
   };
 }
@@ -135,6 +208,43 @@ function detectStrengthTraining(text: string): boolean {
   );
 }
 
+function parseEstimatedPaceMinutesPerMile(value: string | undefined): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const minuteMatch = trimmed.match(/^(\d+):(\d{2})(?:\s*\/\s*(?:mi|mile|miles))?$/i);
+  if (minuteMatch) {
+    const minutes = Number(minuteMatch[1]);
+    const seconds = Number(minuteMatch[2]);
+    return minutes + seconds / 60;
+  }
+
+  const mphMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*mph$/i);
+  if (mphMatch) {
+    const mph = Number(mphMatch[1]);
+    if (mph > 0) {
+      return 60 / mph;
+    }
+  }
+
+  return undefined;
+}
+
+function estimateDistanceMiles(durationMinutes: number, estimatedPace: string | undefined, isStrengthTraining: boolean): number | undefined {
+  if (isStrengthTraining) {
+    return undefined;
+  }
+
+  const minutesPerMile = parseEstimatedPaceMinutesPerMile(estimatedPace);
+  if (!minutesPerMile || minutesPerMile <= 0 || durationMinutes <= 0) {
+    return undefined;
+  }
+
+  return Number((durationMinutes / minutesPerMile).toFixed(2));
+}
+
 function extractDistanceMiles(text: string, isStrengthTraining: boolean): number | undefined {
   if (isStrengthTraining) {
     return undefined;
@@ -211,7 +321,7 @@ function parseEvents(input: string): ParsedEvent[] {
   return events;
 }
 
-export function parseIcsToTrainingRecommendations(input: string): RecommendationDraft[] {
+export function parseIcsToTrainingRecommendations(input: string, options: ParseIcsOptions = {}): RecommendationDraft[] {
   const events = parseEvents(input);
 
   return events.map((event) => {
@@ -228,7 +338,10 @@ export function parseIcsToTrainingRecommendations(input: string): Recommendation
         ? Math.max(1, Math.round((event.dtEnd.getTime() - event.dtStart.getTime()) / 60000))
         : 45);
 
-    const distanceMiles = extractDistanceMiles(combinedText, isStrengthTraining);
+    const explicitDistanceMiles = extractDistanceMiles(combinedText, isStrengthTraining);
+    const distanceMiles = isStrengthTraining
+      ? undefined
+      : explicitDistanceMiles ?? estimateDistanceMiles(durationMinutes, options.estimatedPace, isStrengthTraining) ?? 5;
 
     const intervalCount = extractIntervalCount(combinedText);
 

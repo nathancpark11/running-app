@@ -56,6 +56,7 @@ export const DEFAULT_GOALS: Goals = {
   weeklyMileage: 22,
   monthlyMileage: 90,
   longRunGoal: 12,
+  estimatedPace: "9:00/mi",
 };
 
 export const DEFAULT_ROUTINES: StretchRoutine[] = [
