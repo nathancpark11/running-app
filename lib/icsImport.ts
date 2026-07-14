@@ -129,7 +129,17 @@ function detectSurface(text: string): RunSurface {
   return "Outdoor";
 }
 
-function extractDistanceMiles(text: string): number {
+function detectStrengthTraining(text: string): boolean {
+  return /\b(strength(?:\s+training)?|strength\s+day|weights?|weight\s+room|lifting|lift\b|resistance|cross\s*training|core\s+work|upper\s+body|lower\s+body|gym)\b/i.test(
+    text,
+  );
+}
+
+function extractDistanceMiles(text: string, isStrengthTraining: boolean): number | undefined {
+  if (isStrengthTraining) {
+    return undefined;
+  }
+
   const match = text.match(/(\d+(?:\.\d+)?)\s*(mi|mile|miles|km|kilometer|kilometers)\b/i);
   if (!match) {
     return 5;
@@ -208,6 +218,7 @@ export function parseIcsToTrainingRecommendations(input: string): Recommendation
     const combinedText = `${event.summary} ${event.description}`.trim();
     const runType = detectRunType(combinedText);
     const surface = detectSurface(combinedText);
+    const isStrengthTraining = detectStrengthTraining(combinedText);
     const parsedDescription = splitDescriptionAndAiCoachNote(event.description);
 
     const dtStart = event.dtStart ?? new Date();
@@ -217,7 +228,7 @@ export function parseIcsToTrainingRecommendations(input: string): Recommendation
         ? Math.max(1, Math.round((event.dtEnd.getTime() - event.dtStart.getTime()) / 60000))
         : 45);
 
-    const distanceMiles = extractDistanceMiles(combinedText);
+    const distanceMiles = extractDistanceMiles(combinedText, isStrengthTraining);
 
     const intervalCount = extractIntervalCount(combinedText);
 

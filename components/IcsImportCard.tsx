@@ -171,34 +171,36 @@ export function IcsImportCard({
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p> : null}
 
-      <button
-        type="button"
-        disabled={!canImport || saveState === "saving"}
-        onClick={async () => {
-          setSaveState("saving");
-          try {
-            await onImportRecommendations(effectivePlanName, draftRecommendations, importStrategy);
-            setDraftRecommendations([]);
-            setFileName("");
-            setPlanName("");
-            setError("");
-            setSaveState("saved");
-          } catch {
-            setSaveState("error");
-          }
-        }}
-        className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700"
-      >
-        {saveState === "saving" ? "Saving…" : "Save Training Plan"}
-      </button>
-      {saveState === "saved" ? (
-        <p className="mt-2 text-sm text-green-600 dark:text-green-400">Training plan saved.</p>
-      ) : null}
-      {saveState === "error" ? (
-        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-          Failed to save — check your connection or try signing out and back in.
-        </p>
-      ) : null}
+      <div className="sticky bottom-(--mobile-nav-offset) mt-4 -mx-5 border-t border-slate-200 bg-white/95 px-5 py-3 backdrop-blur supports-backdrop-filter:bg-white/80 dark:border-slate-700 dark:bg-slate-900/95 dark:supports-backdrop-filter:bg-slate-900/80 md:static md:mx-0 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-0">
+        <button
+          type="button"
+          disabled={!canImport || saveState === "saving"}
+          onClick={async () => {
+            setSaveState("saving");
+            try {
+              await onImportRecommendations(effectivePlanName, draftRecommendations, importStrategy);
+              setDraftRecommendations([]);
+              setFileName("");
+              setPlanName("");
+              setError("");
+              setSaveState("saved");
+            } catch {
+              setSaveState("error");
+            }
+          }}
+          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700 md:mt-4 md:w-auto"
+        >
+          {saveState === "saving" ? "Saving…" : "Save Training Plan"}
+        </button>
+        {saveState === "saved" ? (
+          <p className="mt-2 text-sm text-green-600 dark:text-green-400">Training plan saved.</p>
+        ) : null}
+        {saveState === "error" ? (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+            Failed to save — check your connection or try signing out and back in.
+          </p>
+        ) : null}
+      </div>
     </article>
   );
 }

@@ -192,7 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 px-3 py-2.5 pb-[calc(92px+env(safe-area-inset-bottom))] md:px-8 md:py-5 md:pb-8">{children}</main>
+        <main className="flex-1 px-3 py-2.5 pb-(--mobile-nav-offset) md:px-8 md:py-5 md:pb-8">{children}</main>
       </div>
 
       {isPaceModalOpen ? (

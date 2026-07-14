@@ -8,6 +8,9 @@
   --card: #ffffff;
   --muted: #e2e8f0;
   --brand: #2563eb;
+  --mobile-nav-height: 92px;
+  --mobile-nav-clearance: 20px;
+  --mobile-nav-offset: calc(var(--mobile-nav-height) + var(--mobile-nav-clearance) + env(safe-area-inset-bottom));
 }
 
 @theme inline {

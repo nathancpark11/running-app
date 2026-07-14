@@ -54,7 +54,7 @@ export function MobileNav() {
   }, []);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/94 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-950/94">
+    <nav className="fixed inset-x-0 bottom-0 z-50 min-h-(--mobile-nav-height) border-t border-slate-200/80 bg-white/94 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-950/94">
       <ul className="mx-auto grid w-full max-w-md grid-cols-5 gap-1.5 rounded-2xl bg-slate-100/70 p-1.5 dark:bg-slate-900/80">
         {navItems.map((item) => {
           const Icon = item.icon;
