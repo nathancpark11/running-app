@@ -30,6 +30,8 @@ export function IcsImportCard({
   const [fileName, setFileName] = useState("");
   const [planName, setPlanName] = useState("");
   const [error, setError] = useState("");
+  const [templateDownloadError, setTemplateDownloadError] = useState("");
+  const [isPreparingTemplate, setIsPreparingTemplate] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [importStrategy, setImportStrategy] = useState<ImportConflictStrategy>("override");
 
@@ -91,6 +93,52 @@ export function IcsImportCard({
     }
   }
 
+  async function handleTemplateDownload() {
+    setTemplateDownloadError("");
+    setIsPreparingTemplate(true);
+
+    try {
+      const response = await fetch(ICS_TEMPLATE_PATH);
+      if (!response.ok) {
+        throw new Error("Template request failed");
+      }
+
+      const templateText = await response.text();
+      const templateFile = new File([templateText], "training-plan-template.ics", {
+        type: "text/calendar;charset=utf-8",
+      });
+
+      if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [templateFile] })
+      ) {
+        await navigator.share({
+          files: [templateFile],
+          title: "Training Plan Template",
+        });
+        return;
+      }
+
+      const downloadUrl = URL.createObjectURL(templateFile);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = templateFile.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (downloadError) {
+      if (downloadError instanceof DOMException && downloadError.name === "AbortError") {
+        return;
+      }
+      setTemplateDownloadError("Could not prepare the template file on this device.");
+    } finally {
+      setIsPreparingTemplate(false);
+    }
+  }
+
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Import Training Plan (.ics)</h2>
@@ -109,15 +157,17 @@ export function IcsImportCard({
             onChange={(event) => handleFileSelect(event.target.files?.[0])}
           />
         </label>
-        <a
-          href={ICS_TEMPLATE_PATH}
-          download
+        <button
+          type="button"
+          onClick={handleTemplateDownload}
+          disabled={isPreparingTemplate}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
         >
-          Download Template
-        </a>
+          {isPreparingTemplate ? "Preparing Template…" : "Download Template"}
+        </button>
         {fileName ? <span className="text-sm text-slate-600 dark:text-slate-300">{fileName}</span> : null}
       </div>
+      {templateDownloadError ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{templateDownloadError}</p> : null}
 
       {isUpdatingExistingPlan ? (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/40">
