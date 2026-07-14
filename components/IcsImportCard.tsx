@@ -5,6 +5,8 @@ import { Upload } from "lucide-react";
 import { parseIcsToTrainingRecommendations } from "@/lib/icsImport";
 import type { ImportConflictStrategy, TrainingRecommendation } from "@/lib/types";
 
+const ICS_TEMPLATE_PATH = "/references/training-plan-template.ics";
+
 type RecommendationDraft = Omit<TrainingRecommendation, "id">;
 
 type IcsImportCardProps = {
@@ -107,6 +109,13 @@ export function IcsImportCard({
             onChange={(event) => handleFileSelect(event.target.files?.[0])}
           />
         </label>
+        <a
+          href={ICS_TEMPLATE_PATH}
+          download
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          Download Template
+        </a>
         {fileName ? <span className="text-sm text-slate-600 dark:text-slate-300">{fileName}</span> : null}
       </div>
 
