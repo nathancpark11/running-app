@@ -37,18 +37,20 @@ function formatStructuredWorkoutNotes(description: string): string | undefined {
     return undefined;
   }
 
-  const sectionRegex = /\b(warm\s*up|wu|main\s*set|ms|cool\s*down|cd)\b\s*[:\-]?/gi;
+  const sectionRegex = /\b(warm(?:[\s-]*)up|wu|main(?:[\s-]*)set|ms|cool(?:[\s-]*)down|cd)\b\s*[:\-]?/gi;
   const matches = [...normalized.matchAll(sectionRegex)];
   if (matches.length < 2) {
     return undefined;
   }
 
   const sections = new Map<WorkoutSectionKey, string>();
+  let warmUpEnd = -1;
+  let coolDownStart = -1;
 
   for (let index = 0; index < matches.length; index += 1) {
     const current = matches[index];
     const next = matches[index + 1];
-    const rawLabel = current[1].toLowerCase().replace(/\s+/g, "");
+    const rawLabel = current[1].toLowerCase().replace(/[\s-]+/g, "");
     const key: WorkoutSectionKey | undefined =
       rawLabel === "warmup" || rawLabel === "wu"
         ? "warmUp"
@@ -73,6 +75,25 @@ function formatStructuredWorkoutNotes(description: string): string | undefined {
 
     if (value) {
       sections.set(key, value);
+      if (key === "warmUp") {
+        warmUpEnd = end;
+      }
+      if (key === "coolDown") {
+        coolDownStart = current.index;
+      }
+    }
+  }
+
+  if (!sections.has("mainSet") && warmUpEnd >= 0 && coolDownStart > warmUpEnd) {
+    const middleBlock = normalized
+      .slice(warmUpEnd, coolDownStart)
+      .trim()
+      .replace(/^[\s:;,-]+/, "")
+      .replace(/[\s;,-]+$/, "")
+      .trim();
+
+    if (middleBlock) {
+      sections.set("mainSet", middleBlock);
     }
   }
 
